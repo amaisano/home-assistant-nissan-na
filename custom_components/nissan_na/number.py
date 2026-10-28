@@ -5,6 +5,7 @@ import logging
 import httpx
 from homeassistant.components.number import NumberEntity
 from homeassistant.core import callback
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 
 from .const import DOMAIN
@@ -179,37 +180,12 @@ class NissanChargeLimitNumber(NumberEntity):
             pass
 
     async def async_set_native_value(self, value: float) -> None:
-        """Set the charge limit."""
+        """Set the charge limit (Smartcar v3 commands/charge/set-limit)."""
+        limit = int(max(0, min(100, value)))
         try:
-            # Smartcar API expects integer 0-100
-            limit = int(max(0, min(100, value)))
-            # Make API call to set charge limit
-            url = (
-                f"https://vehicle.api.smartcar.com/v3"
-                f"/vehicles/{self._vehicle.id}/charge/limit"
-            )
-            access_token = await self._client._get_access_token()
-            headers = {"Authorization": f"Bearer {access_token}"}
-            data = {"limit": limit}
-
-            async with httpx.AsyncClient() as client:
-                response = await client.post(url, headers=headers, json=data)
-                if response.status_code in (200, 204):
-                    self._attr_native_value = limit
-                    self.async_write_ha_state()
-                    _LOGGER.info(
-                        "Set charge limit to %s%% for vehicle %s",
-                        limit,
-                        self._vehicle.id,
-                    )
-                else:
-                    _LOGGER.error(
-                        "Failed to set charge limit: %s",
-                        response.status_code,
-                    )
-                    self._attr_available = False
-                    self.async_write_ha_state()
+            await self._client.set_charge_limit(self._vehicle.id, limit)
         except Exception as err:
-            _LOGGER.error("Failed to set charge limit: %s", err)
-            self._attr_available = False
-            self.async_write_ha_state()
+            raise HomeAssistantError(f"Setting charge limit failed: {err}") from err
+        self._attr_native_value = limit
+        self.async_write_ha_state()
+        _LOGGER.info("Set charge limit to %s%% for vehicle %s", limit, self._vehicle.id)

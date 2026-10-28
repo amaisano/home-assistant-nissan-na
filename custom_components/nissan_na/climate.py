@@ -1,6 +1,7 @@
 from homeassistant.components.climate import ClimateEntity
 from homeassistant.components.climate.const import HVACMode
 from homeassistant.const import UnitOfTemperature
+from homeassistant.exceptions import HomeAssistantError
 
 from .const import DOMAIN
 
@@ -85,10 +86,13 @@ class NissanClimateEntity(ClimateEntity):
         Set the HVAC mode for the vehicle's climate control.
         Starts or stops climate based on the selected mode.
         """
-        if hvac_mode == HVACMode.OFF:
-            await self._client.stop_climate(self._vehicle.id)
-        else:
-            await self._client.start_climate(self._vehicle.id)
+        try:
+            if hvac_mode == HVACMode.OFF:
+                await self._client.stop_climate(self._vehicle.id)
+            else:
+                await self._client.start_climate(self._vehicle.id)
+        except Exception as err:
+            raise HomeAssistantError(str(err)) from err
         self._hvac_mode = hvac_mode
         self.async_write_ha_state()
 

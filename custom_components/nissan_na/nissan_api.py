@@ -40,6 +40,10 @@ class Vehicle(BaseModel):
     make: Optional[str] = None
 
 
+class SmartcarCommandError(Exception):
+    """A Smartcar v3 command was rejected or failed (message is user-facing)."""
+
+
 class SmartcarApiClient:
     """Client for Nissan vehicles via Smartcar API.
 
@@ -145,6 +149,48 @@ class SmartcarApiClient:
             )
             resp.raise_for_status()
             return resp.json()
+
+    # Commands may run ~175 s; Smartcar then answers 202 and streams the result
+    _COMMAND_TIMEOUT = httpx.Timeout(190.0, connect=15.0)
+
+    @staticmethod
+    def _error_text(err: Dict[str, Any], fallback: str) -> str:
+        title = err.get("title") or err.get("code") or fallback
+        detail = err.get("detail") or err.get("description") or ""
+        return f"{title}: {detail}" if detail else str(title)
+
+    async def _v3_command(
+        self, vehicle_id: str, command: str, body: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        """POST /v3/vehicles/{id}/commands/{command} and return the result.
+
+        Raises SmartcarCommandError with Smartcar's own error text when the
+        request is rejected (4xx/5xx) or the command reports FAILURE.
+        """
+        headers = await self._api_headers()
+        url = f"{self._V3_BASE}/vehicles/{vehicle_id}/commands/{command}"
+        async with httpx.AsyncClient(timeout=self._COMMAND_TIMEOUT) as client:
+            resp = await client.post(url, headers=headers, json=body)
+        try:
+            data = resp.json()
+        except ValueError:
+            data = {}
+        if not isinstance(data, dict):
+            data = {}
+        if resp.status_code not in (200, 202):
+            errors = data.get("errors") or [{}]
+            raise SmartcarCommandError(
+                f"Smartcar rejected {command} (HTTP {resp.status_code}) - "
+                + self._error_text(errors[0], resp.reason_phrase)
+            )
+        status = ((data.get("data") or {}).get("attributes") or {}).get("status") or {}
+        if status.get("value") not in (None, "SUCCESS"):
+            raise SmartcarCommandError(
+                f"{command} failed - "
+                + self._error_text(status.get("error") or {}, str(status.get("value")))
+            )
+        _LOGGER.debug("Command %s succeeded for vehicle %s", command, vehicle_id)
+        return data
 
     # ------------------------------------------------------------------
     # Vehicle list (Connections API)
@@ -389,50 +435,48 @@ class SmartcarApiClient:
     # ------------------------------------------------------------------
 
     async def lock_doors(self, vehicle_id: str) -> Dict[str, Any]:
-        result = await self._v3_post(vehicle_id, "security", {"action": "LOCK"})
+        result = await self._v3_command(vehicle_id, "security/lock")
         _LOGGER.debug("Lock command sent for vehicle %s", vehicle_id)
         return result
 
     async def unlock_doors(self, vehicle_id: str) -> Dict[str, Any]:
-        result = await self._v3_post(vehicle_id, "security", {"action": "UNLOCK"})
+        result = await self._v3_command(vehicle_id, "security/unlock")
         _LOGGER.debug("Unlock command sent for vehicle %s", vehicle_id)
         return result
 
     async def start_charge(self, vehicle_id: str) -> Dict[str, Any]:
-        result = await self._v3_post(vehicle_id, "charge", {"action": "START"})
+        result = await self._v3_command(vehicle_id, "charge/start")
         _LOGGER.debug("Start charge command sent for vehicle %s", vehicle_id)
         return result
 
     async def stop_charge(self, vehicle_id: str) -> Dict[str, Any]:
-        result = await self._v3_post(vehicle_id, "charge", {"action": "STOP"})
+        result = await self._v3_command(vehicle_id, "charge/stop")
         _LOGGER.debug("Stop charge command sent for vehicle %s", vehicle_id)
         return result
 
+    async def set_charge_limit(self, vehicle_id: str, percent: int) -> Dict[str, Any]:
+        result = await self._v3_command(
+            vehicle_id,
+            "charge/set-limit",
+            {"data": {"attributes": {"percent": int(percent)}}},
+        )
+        _LOGGER.debug("Charge limit %s%% sent for vehicle %s", percent, vehicle_id)
+        return result
+
     # ------------------------------------------------------------------
-    # Climate control (direct HTTP)
+    # Climate control
     # ------------------------------------------------------------------
+
+    _NO_CLIMATE = (
+        "Smartcar's v3 API has no climate command, so cabin climate can't be "
+        "controlled through Smartcar (use the NissanConnect app)."
+    )
 
     async def start_climate(self, vehicle_id: str) -> Dict[str, Any]:
-        headers = await self._api_headers()
-        async with httpx.AsyncClient() as client:
-            resp = await client.post(
-                f"{self._V3_BASE}/vehicles/{vehicle_id}/climate",
-                headers=headers,
-                json={"action": "START"},
-            )
-            resp.raise_for_status()
-            return resp.json()
+        raise SmartcarCommandError(self._NO_CLIMATE)
 
     async def stop_climate(self, vehicle_id: str) -> Dict[str, Any]:
-        headers = await self._api_headers()
-        async with httpx.AsyncClient() as client:
-            resp = await client.post(
-                f"{self._V3_BASE}/vehicles/{vehicle_id}/climate",
-                headers=headers,
-                json={"action": "STOP"},
-            )
-            resp.raise_for_status()
-            return resp.json()
+        raise SmartcarCommandError(self._NO_CLIMATE)
 
     async def get_climate_status(self, vehicle_id: str) -> Dict[str, Any]:
         headers = await self._api_headers()

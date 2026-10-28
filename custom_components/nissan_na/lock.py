@@ -1,5 +1,6 @@
 from homeassistant.components.lock import LockEntity
 from homeassistant.core import callback
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 
 from .const import DOMAIN
@@ -116,13 +117,19 @@ class NissanDoorLockEntity(LockEntity):
 
     async def async_lock(self, **kwargs):
         """Lock the vehicle doors via the Nissan API."""
-        await self._client.lock_doors(self._vehicle.id)
+        try:
+            await self._client.lock_doors(self._vehicle.id)
+        except Exception as err:
+            raise HomeAssistantError(f"Lock failed: {err}") from err
         self._is_locked = True
         self.async_write_ha_state()
 
     async def async_unlock(self, **kwargs):
         """Unlock the vehicle doors via the Nissan API."""
-        await self._client.unlock_doors(self._vehicle.id)
+        try:
+            await self._client.unlock_doors(self._vehicle.id)
+        except Exception as err:
+            raise HomeAssistantError(f"Unlock failed: {err}") from err
         self._is_locked = False
         self.async_write_ha_state()
 
