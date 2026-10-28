@@ -4,6 +4,7 @@ import logging
 
 import httpx
 from homeassistant.components.number import NumberEntity
+from homeassistant.core import callback
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 
 from .const import DOMAIN
@@ -155,6 +156,7 @@ class NissanChargeLimitNumber(NumberEntity):
             self._unsub_dispatcher()
         await super().async_will_remove_from_hass()
 
+    @callback
     def _handle_webhook_data(self, data: dict):
         """Handle webhook data updates."""
         if not isinstance(data, dict):

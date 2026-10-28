@@ -618,12 +618,39 @@ class SmartcarApiClient:
             return attrs["body"] or {}
         return body
 
-    def _apply_signal_to_status(
-        self, status: dict, signal_code: str, body: dict
-    ) -> None:
-        """Map a v3 signal response body into the shared status dict."""
+    # Smartcar row/column grid -> position names (doors, windows, tires)
+    _GRID_POS = {
+        (0, 0): "frontLeft",
+        (0, 1): "frontRight",
+        (1, 0): "backLeft",
+        (1, 1): "backRight",
+    }
+
+    @staticmethod
+    def _val(body: dict, *keys: str) -> Any:
+        """Return the first non-None of body[key]..., then body["value"].
+
+        v3 signals mostly use ``{"value": ..., "unit": ...}``; ``is not None``
+        keeps legitimate False / 0 readings.
+        """
+        for key in (*keys, "value"):
+            val = body.get(key)
+            if val is not None:
+                return val
+        return None
+
+    @staticmethod
+    def _apply_signal_to_status(status: dict, signal_code: str, body: dict) -> None:
+        """Map a v3 signal body into the shared status dict.
+
+        Used for both REST signals and webhook VEHICLE_STATE payloads, so the
+        shape matches what the entities read (``battery.percentRemaining``,
+        ``closure.doors.frontLeft.isOpen``, ``lock.is_locked``, ...).
+        """
         if not body:
             return
+        _val = SmartcarApiClient._val
+        grid = SmartcarApiClient._GRID_POS
 
         code = signal_code.lower()
         _LOGGER.debug("Applying signal %s body: %s", code, body)
@@ -692,19 +719,39 @@ class SmartcarApiClient:
             )
 
         elif code == "closure-islocked":
-            status.setdefault("security", {})["isLocked"] = body.get("isLocked")
+            is_locked = _val(body, "isLocked")
+            status.setdefault("security", {})["isLocked"] = is_locked
+            status["lock"] = {"is_locked": is_locked}
 
-        elif code == "closure-doors":
-            status.setdefault("security", {})["doors"] = body.get("doors", body)
+        elif code in ("closure-doors", "closure-windows"):
+            kind = "doors" if code == "closure-doors" else "windows"
+            status.setdefault("security", {})[kind] = body.get(kind, body)
+            positions: dict = {}
+            for entry in body.get(kind) or []:
+                if not isinstance(entry, dict):
+                    continue
+                pos = grid.get((entry.get("row"), entry.get("column")))
+                if pos:
+                    positions[pos] = {
+                        k: entry[k] for k in ("isOpen", "isLocked") if k in entry
+                    }
+            if positions:
+                status.setdefault("closure", {})[kind] = positions
 
-        elif code == "closure-reartrunk":
-            status.setdefault("security", {})["rearTrunk"] = body
-
-        elif code == "closure-fronttrunk":
-            status.setdefault("security", {})["frontTrunk"] = body
-
-        elif code == "closure-enginecover":
-            status.setdefault("security", {})["engineCover"] = body
+        elif code in (
+            "closure-reartrunk",
+            "closure-fronttrunk",
+            "closure-enginecover",
+            "closure-sunroof",
+        ):
+            key = {
+                "closure-reartrunk": "rearTrunk",
+                "closure-fronttrunk": "frontTrunk",
+                "closure-enginecover": "engineCover",
+                "closure-sunroof": "sunroof",
+            }[code]
+            status.setdefault("security", {})[key] = body
+            status.setdefault("closure", {})[key] = body
 
         elif code == "diagnostics-mil":
             status.setdefault("diagnostics", {})["mil"] = body.get("status")
@@ -722,12 +769,12 @@ class SmartcarApiClient:
             status.setdefault("diagnostics", {})["oilPressure"] = body.get("status")
 
         elif code == "tractionbattery-stateofcharge":
-            status.setdefault("battery", {})["percentRemaining"] = body.get(
-                "stateOfCharge"
-            ) or body.get("percentRemaining")
+            status.setdefault("battery", {})["percentRemaining"] = _val(
+                body, "stateOfCharge", "percentRemaining"
+            )
 
         elif code == "tractionbattery-range":
-            status.setdefault("battery", {})["range"] = body.get("range")
+            status.setdefault("battery", {})["range"] = _val(body, "range")
 
         elif code == "tractionbattery-nominalcapacity":
             status.setdefault("battery", {})["capacityKwh"] = body.get(
@@ -758,6 +805,43 @@ class SmartcarApiClient:
 
         elif code == "charge-chargetimers":
             status.setdefault("charge", {})["chargeTimers"] = body
+
+        elif code == "charge-amperage":
+            status.setdefault("charge", {})["amperage"] = _val(body, "amperage")
+
+        elif code == "charge-amperagemax":
+            status.setdefault("charge", {})["amperageMax"] = _val(body, "amperageMax")
+
+        elif code == "charge-chargelimits":
+            limit = body.get("activeLimit")
+            if limit is None:
+                for entry in body.get("values") or []:
+                    if isinstance(entry, dict) and entry.get("type") == "GLOBAL":
+                        limit = entry.get("limit")
+                        break
+            if limit is not None:
+                status.setdefault("charge", {})["limit"] = limit
+
+        elif code == "charge-isfastchargerpresent":
+            status.setdefault("charge", {})["isFastChargerConnected"] = _val(body)
+
+        elif code in (
+            "connectivitystatus-isonline",
+            "connectivitystatus-isasleep",
+            "connectivitystatus-isdigitalkeypaired",
+        ):
+            key = {
+                "connectivitystatus-isonline": "isOnline",
+                "connectivitystatus-isasleep": "isAsleep",
+                "connectivitystatus-isdigitalkeypaired": "isDigitalKeyPaired",
+            }[code]
+            status.setdefault("connectivity", {})[key] = _val(body)
+
+        elif code == "surveillance-isenabled":
+            status.setdefault("surveillance", {})["isEnabled"] = _val(body)
+
+        elif code == "tractionbattery-isheateractive":
+            status.setdefault("tractionBattery", {})["isHeaterActive"] = _val(body)
 
         elif code == "charge-voltage":
             status.setdefault("charge", {})["voltage"] = body.get(

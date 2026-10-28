@@ -1,6 +1,7 @@
 import logging
 
 from homeassistant.components.device_tracker import SourceType, TrackerEntity
+from homeassistant.core import callback
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 
 from .const import DOMAIN
@@ -102,6 +103,7 @@ class NissanVehicleTracker(TrackerEntity):
             self._unsub_dispatcher()
         await super().async_will_remove_from_hass()
 
+    @callback
     def _handle_webhook_data(self, data: dict):
         """Handle webhook data update from Smartcar.
 

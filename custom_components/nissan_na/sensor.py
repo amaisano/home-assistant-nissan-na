@@ -5,6 +5,7 @@ from homeassistant.components.persistent_notification import (
     async_dismiss as async_dismiss_notification,
 )
 from homeassistant.components.sensor import SensorEntity, SensorDeviceClass
+from homeassistant.core import callback
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 
@@ -771,6 +772,7 @@ class NissanGenericSensor(SensorEntity):
             self._unsub_dispatcher()
         await super().async_will_remove_from_hass()
 
+    @callback
     def _handle_webhook_data(self, data: dict):
         """Handle webhook data update from Smartcar.
 

@@ -6,6 +6,7 @@ from homeassistant.components.binary_sensor import (
     BinarySensorEntity,
     BinarySensorDeviceClass,
 )
+from homeassistant.core import callback
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 
 from .const import DOMAIN
@@ -316,6 +317,7 @@ class NissanBinarySensor(BinarySensorEntity):
             self._unsub_dispatcher()
         await super().async_will_remove_from_hass()
 
+    @callback
     def _handle_webhook_data(self, data: dict):
         """Handle webhook data updates."""
         # Parse signal path to extract value from webhook data

@@ -11,6 +11,8 @@ from homeassistant.const import CONF_WEBHOOK_ID
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 
+from .nissan_api import SmartcarApiClient
+
 _LOGGER = logging.getLogger(__name__)
 
 CONF_MANAGEMENT_TOKEN = "management_token"
@@ -44,8 +46,8 @@ def _parse_smartcar_signals(signals: list) -> dict:
         signals: List of signal objects from Smartcar webhook
 
     Returns:
-        dict: Flat dictionary mapping signal codes to their values
-              Example: {"charge.isCharging": True, "battery.range": 250}
+        dict: Nested status dict, same shape as the REST status
+              Example: {"charge": {"isCharging": True}, "battery": {"range": 250}}
     """
     data = {}
     if not isinstance(signals, list):
@@ -59,39 +61,28 @@ def _parse_smartcar_signals(signals: list) -> dict:
 
         code = signal.get("code")
         body = signal.get("body")
-        status = signal.get("status", {})
-        status_value = status.get("value")
+        status = signal.get("status") or {}
 
-        # Skip signals with error status
-        if status_value != "SUCCESS":
-            _LOGGER.debug("Skipping signal %s with status %s", code, status_value)
+        # v4 VEHICLE_STATE: a successful signal has "body" and no "status";
+        # a failed one has status {"value": "ERROR", "error": {...}} and no body.
+        if status.get("error") or status.get("value") not in (None, "SUCCESS"):
+            _LOGGER.debug(
+                "Skipping signal %s: %s",
+                code,
+                (status.get("error") or {}).get("type") or status.get("value"),
+            )
             continue
 
         if not code or body is None:
             _LOGGER.debug("Signal missing code or body: code=%s, body=%s", code, body)
             continue
 
-        # Convert the Smartcar signal code format to our format
-        # Smartcar uses lowercase with hyphens: "charge-ischarging"
-        # We want: "charge.isCharging" (dot-separated, camelCase)
-        # For now, we'll store the raw code and let the entity handle conversion
-
         _LOGGER.debug("Processing signal %s with body: %s", code, body)
 
-        # Store the body content - it could be a simple value or a dict with nested data
+        # Same mapping as the REST signals endpoint, so entities see one shape
         if isinstance(body, dict):
-            # For complex objects like location, battery, etc.
-            # Extract the value if there's a single "value" key
-            if "value" in body and len(body) == 1:
-                data[code] = body["value"]
-            elif "value" in body and "unit" in body:
-                # For values with units (e.g., {"value": 65, "unit": "percent"})
-                data[code] = body["value"]
-            else:
-                # Store the whole dict for complex types (location, battery info, etc.)
-                data[code] = body
+            SmartcarApiClient._apply_signal_to_status(data, code, body)
         else:
-            # Simple value (boolean, string, number)
             data[code] = body
 
     _LOGGER.debug("Parsed %d signals into %d data fields", len(signals), len(data))

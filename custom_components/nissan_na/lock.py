@@ -1,4 +1,5 @@
 from homeassistant.components.lock import LockEntity
+from homeassistant.core import callback
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 
 from .const import DOMAIN
@@ -100,6 +101,7 @@ class NissanDoorLockEntity(LockEntity):
             self._subscription()
             self._subscription = None
 
+    @callback
     def _handle_webhook_data(self, data: dict):
         """Handle webhook data update from Smartcar.
 
