@@ -684,6 +684,26 @@ class SmartcarApiClient:
         return None
 
     @staticmethod
+    def _fill_lock_fallback(status: dict) -> None:
+        """Use the car-level lock state where a door/trunk reports isLocked null.
+
+        After an unlock, Nissan reports each door's (and the trunk's) isLocked
+        as null and only keeps closure-islocked. Without this the per-door lock
+        sensors go unknown.
+        """
+        overall = (status.get("lock") or {}).get("is_locked")
+        if overall is None:
+            return
+        closure = status.get("closure") or {}
+        for entry in (closure.get("doors") or {}).values():
+            if isinstance(entry, dict) and "isLocked" in entry and entry["isLocked"] is None:
+                entry["isLocked"] = overall
+        for key in ("frontTrunk", "rearTrunk"):
+            entry = closure.get(key)
+            if isinstance(entry, dict) and "isLocked" in entry and entry["isLocked"] is None:
+                entry["isLocked"] = overall
+
+    @staticmethod
     def _apply_signal_to_status(status: dict, signal_code: str, body: dict) -> None:
         """Map a v3 signal body into the shared status dict.
 
@@ -972,5 +992,6 @@ class SmartcarApiClient:
             if body:
                 self._apply_signal_to_status(status, code, body)
 
+        self._fill_lock_fallback(status)
         _LOGGER.debug("Vehicle status for %s: %s", vehicle_id, status)
         return status

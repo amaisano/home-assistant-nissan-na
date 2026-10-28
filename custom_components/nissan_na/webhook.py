@@ -85,6 +85,7 @@ def _parse_smartcar_signals(signals: list) -> dict:
         else:
             data[code] = body
 
+    SmartcarApiClient._fill_lock_fallback(data)
     _LOGGER.debug("Parsed %d signals into %d data fields", len(signals), len(data))
     return data
 
