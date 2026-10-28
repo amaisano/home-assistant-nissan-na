@@ -210,7 +210,8 @@ class NissanNAOptionsFlowHandler(config_entries.OptionsFlow):
                 self.config_entry, options=new_options
             )
             await self.hass.config_entries.async_reload(self.config_entry.entry_id)
-            return self.async_create_entry(title="", data={})
+            # The options flow result *replaces* entry.options; pass them back
+            return self.async_create_entry(title="", data=new_options)
 
         current_unit_system = self.config_entry.options.get(
             CONF_UNIT_SYSTEM, UNIT_SYSTEM_METRIC
@@ -422,7 +423,10 @@ class NissanNAOptionsFlowHandler(config_entries.OptionsFlow):
             self.hass.config_entries.async_update_entry(
                 self.config_entry, data=new_data
             )
-            return self.async_create_entry(title="", data={})
+            # Keep existing options (e.g. unit_system); data={} would wipe them
+            return self.async_create_entry(
+                title="", data=dict(self.config_entry.options)
+            )
 
         current_token = self.config_entry.data.get(CONF_MANAGEMENT_TOKEN, "")
         webhook_url = self.config_entry.data.get("webhook_url", "Not configured")
