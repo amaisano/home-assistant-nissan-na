@@ -16,6 +16,43 @@ _LOGGER = logging.getLogger(__name__)
 # Webhook signal for data updates
 SIGNAL_WEBHOOK_DATA = "nissan_na_webhook_data"
 
+# v3 signal code -> binary sensor id prefix (ids are "group.path.field")
+_CODE_TO_BINARY_PREFIX = {
+    "closure-doors": "closure.doors",
+    "closure-windows": "closure.windows",
+    "closure-fronttrunk": "closure.frontTrunk",
+    "closure-reartrunk": "closure.rearTrunk",
+    "closure-enginecover": "closure.engineCover",
+    "closure-sunroof": "closure.sunroof",
+    "charge-ischargingcableconnected": "charge.isPluggedIn",
+    "charge-isfastchargerpresent": "charge.isFastChargerConnected",
+    "connectivitystatus-isonline": "connectivity.isOnline",
+    "connectivitystatus-isasleep": "connectivity.isAsleep",
+    "connectivitystatus-isdigitalkeypaired": "connectivity.isDigitalKeyPaired",
+    "surveillance-isenabled": "surveillance.isEnabled",
+    "tractionbattery-isheateractive": "tractionBattery.isHeaterActive",
+}
+
+
+def _binary_ids_for_codes(codes) -> set:
+    """Return the binary sensor ids backed by the given signal codes."""
+    prefixes = {_CODE_TO_BINARY_PREFIX.get(str(c).lower(), c) for c in codes}
+    return {
+        d[0]
+        for d in BINARY_SENSOR_DEFINITIONS
+        if any(d[0] == p or d[0].startswith(p + ".") for p in prefixes)
+    }
+
+
+def _walk_bool(status: dict, signal_id: str):
+    """Follow "a.b.c" through status; None when any step is missing."""
+    value = status
+    for part in signal_id.split("."):
+        if not isinstance(value, dict) or value.get(part) is None:
+            return None
+        value = value[part]
+    return bool(value)
+
 # Binary sensor definitions
 # Format: (signal_id, sensor_name, device_class, icon)
 BINARY_SENSOR_DEFINITIONS = [
@@ -179,11 +216,11 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
     for vehicle in vehicles:
         _LOGGER.info("Setting up binary sensors for vehicle %s", vehicle.id)
 
-        # Get available signals from Smartcar API
+        # Get available signals from Smartcar API (v3 codes like "closure-doors")
         available_signals = set()
         try:
             signals = await client.get_vehicle_signals(vehicle.id)
-            available_signals = set(signals)
+            available_signals = _binary_ids_for_codes(signals)
             _LOGGER.debug(
                 "Binary sensor signals for vehicle %s: %s",
                 vehicle.id,
@@ -199,6 +236,13 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
                 vehicle.id,
                 err,
             )
+
+        # Seed initial states from the stored signals snapshot (one call)
+        try:
+            initial_status = await client.get_vehicle_status(vehicle.id)
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.debug("No initial status for binary sensors: %s", err)
+            initial_status = {}
 
         # Initialize tracking dict for this vehicle
         if vehicle.id not in data["binary_sensors"]:
@@ -233,6 +277,7 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
                     icon,
                     config_entry.entry_id,
                 )
+                sensor._is_on = _walk_bool(initial_status, signal_id)
                 entities.append(sensor)
                 data["binary_sensors"][vehicle.id][signal_id] = sensor
 
@@ -279,7 +324,8 @@ class NissanBinarySensor(BinarySensorEntity):
         self._entry_id = entry_id
         self._device_class = device_class
         self._icon = icon
-        self._is_on = False
+        # None = unknown until real data arrives (False would read as closed/unlocked)
+        self._is_on = None
 
         # Build device name
         nickname = getattr(vehicle, "nickname", None)

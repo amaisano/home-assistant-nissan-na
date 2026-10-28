@@ -725,9 +725,11 @@ class SmartcarApiClient:
 
         elif code in ("closure-doors", "closure-windows"):
             kind = "doors" if code == "closure-doors" else "windows"
-            status.setdefault("security", {})[kind] = body.get(kind, body)
+            # Docs show {"doors": [...]}; the live Ariya sends {"values": [...]}
+            entries = body.get(kind) or body.get("values") or []
+            status.setdefault("security", {})[kind] = entries
             positions: dict = {}
-            for entry in body.get(kind) or []:
+            for entry in entries:
                 if not isinstance(entry, dict):
                     continue
                 pos = grid.get((entry.get("row"), entry.get("column")))
