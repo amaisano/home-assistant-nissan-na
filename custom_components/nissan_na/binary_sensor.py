@@ -277,7 +277,7 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
                     icon,
                     config_entry.entry_id,
                 )
-                sensor._is_on = _walk_bool(initial_status, signal_id)
+                sensor._is_on = sensor._to_is_on(_walk_bool(initial_status, signal_id))
                 entities.append(sensor)
                 data["binary_sensors"][vehicle.id][signal_id] = sensor
 
@@ -326,6 +326,9 @@ class NissanBinarySensor(BinarySensorEntity):
         self._icon = icon
         # None = unknown until real data arrives (False would read as closed/unlocked)
         self._is_on = None
+        # HA's lock device class means on = UNLOCKED, but Smartcar reports
+        # isLocked (True = locked), so lock sensors store the inverse.
+        self._invert = device_class == BinarySensorDeviceClass.LOCK
 
         # Build device name
         nickname = getattr(vehicle, "nickname", None)
@@ -378,7 +381,7 @@ class NissanBinarySensor(BinarySensorEntity):
             for part in parts:
                 value = value[part]
 
-            self._is_on = bool(value)
+            self._is_on = self._to_is_on(value)
             self.async_write_ha_state()
             _LOGGER.debug(
                 "Binary sensor %s updated via webhook: %s",
@@ -393,6 +396,12 @@ class NissanBinarySensor(BinarySensorEntity):
     def unique_id(self):
         """Return unique ID for the entity."""
         return f"{self._vehicle.vin}_{self._signal_id}"
+
+    def _to_is_on(self, value):
+        """Map a Smartcar boolean to HA's on/off (inverted for lock sensors)."""
+        if value is None:
+            return None
+        return not bool(value) if self._invert else bool(value)
 
     @property
     def is_on(self):
