@@ -4,7 +4,11 @@ from homeassistant.components.persistent_notification import (
     async_create as async_create_notification,
     async_dismiss as async_dismiss_notification,
 )
-from homeassistant.components.sensor import SensorEntity, SensorDeviceClass
+from homeassistant.components.sensor import (
+    SensorDeviceClass,
+    SensorEntity,
+    SensorStateClass,
+)
 from homeassistant.core import callback
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
@@ -115,6 +119,31 @@ def map_available_signals(api_signal_codes: list) -> set:
 
     return mapped_signals
 
+
+# Numeric sensors that keep long-term statistics (recorder states are purged
+# after ~10 days; statistics need a state_class). Text and lat/lon get none.
+_M = SensorStateClass.MEASUREMENT
+STATE_CLASSES = {
+    "battery.percentRemaining": _M,
+    "battery.range": _M,
+    "battery.capacityKwh": _M,
+    "battery.lowBatteryPercentRemaining": _M,
+    "charge.voltage": _M,
+    "charge.amperage": _M,
+    "charge.wattage": _M,
+    "charge.timeToComplete": _M,
+    "charge.amperageMax": _M,
+    "charge.limit": _M,
+    "odometer.distance": SensorStateClass.TOTAL_INCREASING,
+    "fuel.amountRemaining": _M,
+    "fuel.percentRemaining": _M,
+    "fuel.range": _M,
+    "tires.frontLeft.pressure": _M,
+    "tires.frontRight.pressure": _M,
+    "tires.backLeft.pressure": _M,
+    "tires.backRight.pressure": _M,
+    "engine.oilLifeRemaining": _M,
+}
 
 # Sensor definitions mapping API keys to sensor info
 # Format: (signal_id, field_name, sensor_name, unit,
@@ -742,6 +771,7 @@ class NissanGenericSensor(SensorEntity):
             )
         self._attr_icon = icon
         self._attr_device_class = device_class
+        self._attr_state_class = STATE_CLASSES.get(signal_id)
         self._attr_unique_id = f"{vehicle.vin}_{signal_id}"
         self._attr_device_info = {"identifiers": {(DOMAIN, self._vehicle.vin)}}
         self._attr_native_unit_of_measurement = (
