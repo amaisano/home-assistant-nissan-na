@@ -289,59 +289,43 @@ class NissanNAOptionsFlowHandler(config_entries.OptionsFlow):
     ) -> dict:
         return await self.async_step_init()
 
+    async def _async_reload_and_count(self) -> tuple[int, int] | None:
+        """Reload the entry so entities match Smartcar's current signals.
+
+        Replaces the upstream rebuild/re-load steps: those called the sensor
+        platform with a stand-in callback that never registered the new
+        entities, and rebuild first removed every sensor from the registry.
+        """
+        data = self.hass.data.get(DOMAIN, {}).get(self.config_entry.entry_id)
+        if not data:
+            return None
+        initial = sum(len(v) for v in data.get("sensors", {}).values())
+        await self.hass.config_entries.async_reload(self.config_entry.entry_id)
+        data = self.hass.data.get(DOMAIN, {}).get(self.config_entry.entry_id) or {}
+        final = sum(len(v) for v in data.get("sensors", {}).values())
+        _LOGGER.info("Reloaded Nissan NA: %d -> %d sensors", initial, final)
+        return initial, final
+
     async def async_step_rebuild_sensors(
         self, user_input: dict[str, Any] | None = None
     ) -> dict:
         try:
-            data = self.hass.data[DOMAIN].get(self.config_entry.entry_id)
-            if not data:
-                return self.async_abort(reason="integration_not_loaded")
-
-            client = data.get("client")
-            if not client:
-                return self.async_abort(reason="client_not_found")
-
-            initial_sensors = data.get("sensors", {})
-            initial_count = sum(len(v) for v in initial_sensors.values())
-            _LOGGER.info("Starting sensor rebuild, current sensors: %d", initial_count)
-
-            from .sensor import async_setup_entry as sensor_setup
-
-            new_entities: list = []
-
-            def async_add_entities_callback(entities, update_before_add=True):
-                new_entities.extend(entities)
-
-            await sensor_setup(
-                self.hass,
-                self.config_entry,
-                async_add_entities_callback,
-                rebuild_mode=True,
-            )
-
-            final_sensors = data.get("sensors", {})
-            final_count = sum(len(v) for v in final_sensors.values())
-            added = len(new_entities)
-            removed = initial_count - final_count + added
-
-            _LOGGER.info(
-                "Sensor rebuild completed: %d total, %d added, %d removed",
-                final_count,
-                added,
-                removed,
-            )
-            return self.async_show_form(
-                step_id="rebuild_complete",
-                description_placeholders={
-                    "initial": str(initial_count),
-                    "final": str(final_count),
-                    "added": str(added),
-                    "removed": str(removed),
-                },
-            )
+            counts = await self._async_reload_and_count()
         except Exception as err:
             _LOGGER.error("Error rebuilding sensors: %s", err, exc_info=True)
             return self.async_abort(reason="rebuild_failed")
+        if counts is None:
+            return self.async_abort(reason="integration_not_loaded")
+        initial, final = counts
+        return self.async_show_form(
+            step_id="rebuild_complete",
+            description_placeholders={
+                "initial": str(initial),
+                "final": str(final),
+                "added": str(max(final - initial, 0)),
+                "removed": str(max(initial - final, 0)),
+            },
+        )
 
     async def async_step_rebuild_complete(
         self, user_input: dict[str, Any] | None = None
@@ -352,61 +336,21 @@ class NissanNAOptionsFlowHandler(config_entries.OptionsFlow):
         self, user_input: dict[str, Any] | None = None
     ) -> dict:
         try:
-            from .sensor import async_setup_entry as sensor_setup
-            from homeassistant.helpers.entity_registry import (
-                async_get as async_get_entity_registry,
-            )
-
-            data = self.hass.data[DOMAIN].get(self.config_entry.entry_id)
-            if not data:
-                return self.async_abort(reason="integration_not_loaded")
-
-            client = data.get("client")
-            if client:
-                try:
-                    vehicles = await client.get_vehicle_list()
-                    for vehicle in vehicles:
-                        signals = await client.get_vehicle_signals(vehicle.id)
-                        _LOGGER.info(
-                            "Discovered %d signals for vehicle %s",
-                            len(signals),
-                            vehicle.id,
-                        )
-                except Exception as err:
-                    _LOGGER.warning(
-                        "Failed to validate vehicle signals during reload: %s", err
-                    )
-
-            current_sensors = data.get("sensors", {})
-            initial_count = sum(len(v) for v in current_sensors.values())
-            async_get_entity_registry(self.hass)
-
-            new_entities: list = []
-
-            def async_add_entities(entities):
-                new_entities.extend(entities)
-
-            await sensor_setup(self.hass, self.config_entry, async_add_entities)
-
-            current_sensors = data.get("sensors", {})
-            final_count = sum(len(v) for v in current_sensors.values())
-
-            _LOGGER.info(
-                "Entity reload completed: %d new sensors, %d total",
-                final_count - initial_count,
-                final_count,
-            )
-            return self.async_show_form(
-                step_id="reload_complete",
-                description_placeholders={
-                    "initial": str(initial_count),
-                    "final": str(final_count),
-                    "new": str(final_count - initial_count),
-                },
-            )
+            counts = await self._async_reload_and_count()
         except Exception as err:
             _LOGGER.error("Error reloading entities: %s", err, exc_info=True)
             return self.async_abort(reason="reload_failed")
+        if counts is None:
+            return self.async_abort(reason="integration_not_loaded")
+        initial, final = counts
+        return self.async_show_form(
+            step_id="reload_complete",
+            description_placeholders={
+                "initial": str(initial),
+                "final": str(final),
+                "new": str(max(final - initial, 0)),
+            },
+        )
 
     async def async_step_reload_complete(
         self, user_input: dict[str, Any] | None = None

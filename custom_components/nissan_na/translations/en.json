@@ -93,7 +93,7 @@
       },
       "rebuild_sensors": {
         "title": "Rebuild All Sensors",
-        "description": "This will validate all sensors against the vehicle's available signals API and:\n\n• Remove any sensors that are no longer supported by your vehicle\n• Add any new sensors that are now available\n\nThis is useful after vehicle software updates or when signals become available/unavailable.\n\nClick Submit to rebuild sensors."
+        "description": "Reload the integration so its entities match the signals Smartcar currently provides for your vehicle."
       },
       "rebuild_complete": {
         "title": "Sensor Rebuild Complete",
@@ -101,7 +101,7 @@
       },
       "reload_entities": {
         "title": "Re-load Entities",
-        "description": "Discover and load any new entities that were not available in the previous integration version."
+        "description": "Reload the integration to pick up any newly available entities."
       },
       "reload_complete": {
         "title": "Entity Re-load Complete",

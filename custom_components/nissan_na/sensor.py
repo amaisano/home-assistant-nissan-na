@@ -458,13 +458,12 @@ async def async_setup_entry(hass, config_entry, async_add_entities, rebuild_mode
             async_create_notification(
                 hass,
                 (
-                    f"**{len(permission_denied)} signal(s) require re-authorization** "
-                    f"before they can be accessed:\n\n{signals_str}\n\n"
-                    "Go to **Settings → Integrations → Nissan (Smartcar)"
-                    " → Configure → "
-                    "Re-authorize Integration** to grant the missing permissions. "
-                    "After re-authorizing, use **Rebuild Sensors**"
-                    " to pick up the new sensors."
+                    f"**{len(permission_denied)} signal(s) aren't permitted** "
+                    f"by your Smartcar connection:\n\n{signals_str}\n\n"
+                    "In the Smartcar Dashboard, select them under **Configuration"
+                    " → Vehicle access** and **Publish**, then reconnect the"
+                    " vehicle through Smartcar Connect (a reconnect replaces the"
+                    " granted permissions). Then reload this integration."
                 ),
                 title="Nissan NA — Re-authorization Required",
                 notification_id=notif_id,
