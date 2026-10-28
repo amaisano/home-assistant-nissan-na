@@ -150,30 +150,111 @@ class SmartcarApiClient:
     # Vehicle list (Connections API)
     # ------------------------------------------------------------------
 
+    async def async_validate_credentials(self) -> None:
+        """Raise if the API client ID / secret cannot obtain a token."""
+        self._cc_token = None
+        self._cc_token_expires_at = 0.0
+        await self._get_access_token()
+
+    @staticmethod
+    def _iter_connections(data: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """Return the list of connection objects from a Connections response.
+
+        Smartcar v3 returns JSON:API (``data: [...]``); the older
+        ``connections: [...]`` shape is accepted as a fallback.
+        """
+        items = data.get("data")
+        if isinstance(items, list):
+            return items
+        legacy = data.get("connections")
+        return legacy if isinstance(legacy, list) else []
+
+    @staticmethod
+    def _parse_connection(
+        conn: Dict[str, Any],
+    ) -> tuple[Optional[str], Optional[str], Dict[str, Any]]:
+        """Extract (vehicle_id, user_id, vehicle_attributes) from a connection."""
+        relationships = conn.get("relationships") or {}
+        vehicle_rel = (relationships.get("vehicle") or {}).get("data") or {}
+        user_rel = (relationships.get("user") or {}).get("data") or {}
+        attrs = conn.get("attributes") or {}
+        user = attrs.get("user") or {}
+        vehicle_id = vehicle_rel.get("id") or conn.get("vehicleId")
+        user_id = user.get("id") or user_rel.get("id") or conn.get("userId")
+        vehicle_attrs = attrs.get("vehicle") or {}
+        return vehicle_id, user_id, vehicle_attrs
+
+    async def _get_connections(
+        self, user_id: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """GET /v3/connections, following page-number pagination."""
+        token = await self._get_access_token()
+        headers = {"Authorization": f"Bearer {token}"}
+        if user_id:
+            headers["sc-user-id"] = user_id
+
+        results: List[Dict[str, Any]] = []
+        page = 1
+        async with httpx.AsyncClient() as client:
+            while True:
+                params: Dict[str, Any] = {"page[number]": page, "page[size]": 50}
+                if user_id:
+                    params["filter[userId]"] = user_id
+                resp = await client.get(
+                    f"{self._V3_BASE}/connections", headers=headers, params=params
+                )
+                if resp.status_code != 200:
+                    raise ValueError(
+                        f"Connections API failed ({resp.status_code}): {resp.text}"
+                    )
+                data = resp.json()
+                items = self._iter_connections(data)
+                results.extend(items)
+                total = (data.get("meta") or {}).get("totalCount")
+                if not items or not total or len(results) >= int(total):
+                    break
+                page += 1
+        _LOGGER.debug("Connections API returned %d connection(s)", len(results))
+        return results
+
+    async def discover_user_ids(self) -> List[str]:
+        """Return the distinct Smartcar user IDs connected to this application.
+
+        Vehicle Simulator connections (``mode: simulated``) are ignored unless
+        they are the only ones, so a dashboard test vehicle doesn't make a
+        single-car account look like two users.
+        """
+        live: List[str] = []
+        simulated: List[str] = []
+        for conn in await self._get_connections():
+            _, user_id, vehicle_attrs = self._parse_connection(conn)
+            if not user_id:
+                continue
+            bucket = simulated if vehicle_attrs.get("mode") == "simulated" else live
+            if user_id not in bucket:
+                bucket.append(user_id)
+        if simulated:
+            _LOGGER.debug("Simulated-vehicle user IDs: %s", simulated)
+        return live or simulated
+
     async def get_vehicle_list(self) -> List[Vehicle]:
         """Return all vehicles connected for this user via the Connections API."""
         if not self.user_id:
             raise ValueError("user_id is not set.")
 
+        connections = await self._get_connections(self.user_id)
         headers = await self._api_headers()
-        async with httpx.AsyncClient() as client:
-            resp = await client.get(
-                f"{self._V3_BASE}/connections",
-                headers=headers,
-                params={"filter[user_id]": self.user_id},
-            )
-            if resp.status_code != 200:
-                raise ValueError(
-                    f"Connections API failed ({resp.status_code}): {resp.text}"
-                )
-            data = resp.json()
 
         vehicles: List[Vehicle] = []
-        for conn in data.get("connections", []):
-            vehicle_id = conn.get("vehicleId")
-            if not vehicle_id:
+        seen: set[str] = set()
+        for conn in connections:
+            vehicle_id, conn_user_id, vehicle_attrs = self._parse_connection(conn)
+            if not vehicle_id or vehicle_id in seen:
                 continue
-            embedded: Dict[str, Any] = {}
+            if conn_user_id and conn_user_id != self.user_id:
+                continue
+            seen.add(vehicle_id)
+            embedded = vehicle_attrs if vehicle_attrs.get("make") else None
             try:
                 vehicle = await self._fetch_vehicle_attributes(
                     vehicle_id, headers, embedded

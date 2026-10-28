@@ -17,6 +17,8 @@ from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.event import async_track_time_interval
 
 from .const import (
+    CONF_CLIENT_ID,
+    CONF_CLIENT_SECRET,
     CONF_USER_ID,
     DOMAIN,
     PLATFORMS,
@@ -100,23 +102,25 @@ async def async_setup_entry(
         )
         return False
 
-    # Load client credentials from Application Credentials storage
-    try:
-        implementation = await async_get_config_entry_implementation(hass, config_entry)
-    except KeyError:
-        _LOGGER.error(
-            "OAuth implementation not found. "
-            "Please remove and re-add the integration."
-        )
-        return False
+    # API Credentials are stored on the entry by the patched config flow.
+    client_id = config_entry.data.get(CONF_CLIENT_ID)
+    client_secret = config_entry.data.get(CONF_CLIENT_SECRET)
 
-    client_id = implementation.client_id
-    client_secret = implementation.client_secret
+    if not client_id or not client_secret:
+        # Legacy entries created by the old OAuth flow
+        try:
+            implementation = await async_get_config_entry_implementation(
+                hass, config_entry
+            )
+            client_id = implementation.client_id
+            client_secret = implementation.client_secret
+        except (KeyError, ValueError):
+            client_id = client_secret = None
 
     if not client_id or not client_secret:
         _LOGGER.error(
-            "API credentials are not configured. "
-            "Please configure Application Credentials for Nissan NA."
+            "Smartcar API credentials are not configured. "
+            "Remove and re-add the Nissan NA integration."
         )
         return False
 

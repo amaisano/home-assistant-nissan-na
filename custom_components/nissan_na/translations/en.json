@@ -1,0 +1,364 @@
+{
+  "config": {
+    "step": {
+      "reauth_confirm": {
+        "title": "Re-enter Smartcar API Credentials",
+        "description": "Enter your Smartcar API Credentials again.",
+        "data": {
+          "client_id": "API client ID",
+          "client_secret": "API client secret",
+          "user_id": "Smartcar user ID (optional)"
+        },
+        "data_description": {
+          "client_id": "From Smartcar Dashboard → your app → API Credentials. This is NOT the Application ID (UUID).",
+          "client_secret": "The secret generated on the API Credentials tab (shown once when created).",
+          "user_id": "Leave blank to look it up automatically. If lookup fails, copy the User ID shown on your vehicle's connection in the Smartcar Dashboard."
+        }
+      },
+      "user": {
+        "title": "Nissan North America (Smartcar)",
+        "description": "Connect your Nissan to your Smartcar app in the Smartcar Dashboard first, then enter the app's API Credentials.",
+        "data": {
+          "client_id": "API client ID",
+          "client_secret": "API client secret",
+          "user_id": "Smartcar user ID (optional)"
+        },
+        "data_description": {
+          "client_id": "From Smartcar Dashboard → your app → API Credentials. This is NOT the Application ID (UUID).",
+          "client_secret": "The secret generated on the API Credentials tab (shown once when created).",
+          "user_id": "Leave blank to look it up automatically. If lookup fails, copy the User ID shown on your vehicle's connection in the Smartcar Dashboard."
+        }
+      }
+    },
+    "error": {
+      "connection_error": "Unable to connect to Smartcar. Please try again.",
+      "invalid_auth": "Smartcar rejected the API client ID or secret.",
+      "application_id_not_api_client_id": "That looks like the Application ID (a UUID) and Smartcar rejected it. Use the client ID from the API Credentials tab.",
+      "user_id_lookup_failed": "Couldn't look up your Smartcar user ID automatically. Paste it from the Smartcar Dashboard.",
+      "multiple_users": "More than one Smartcar user is connected to this app. Paste the user ID for your account.",
+      "no_connections": "No vehicle connections found for this Smartcar app. Connect your Nissan in the Smartcar Dashboard first.",
+      "no_vehicles": "No vehicles found for this Smartcar user.",
+      "cannot_connect": "Unable to reach the Smartcar API. Check the logs for details."
+    },
+    "abort": {
+      "already_configured": "This Smartcar user is already configured.",
+      "no_vehicles": "No vehicles found on your Smartcar account. Please ensure your Nissan vehicle is connected.",
+      "connection_error": "Failed to connect to Smartcar API. Please check your credentials and try again.",
+      "missing_credentials": "Smartcar API credentials are missing. Remove and re-add the integration.",
+      "missing_user_id": "Smartcar Connect did not return a user ID. Ensure your application is using the v3 API in the Smartcar Dashboard.",
+      "reauth_successful": "Reauthorization successful",
+      "reauth_triggered": "Reauthorization started. Please follow the prompts.",
+      "integration_not_loaded": "Integration data not found. Please reload the integration.",
+      "no_sensors_found": "No sensors found to refresh.",
+      "refresh_failed": "Failed to refresh sensors. Please check the logs for details.",
+      "reload_failed": "Failed to reload entities. Please check the logs for details.",
+      "rebuild_failed": "Failed to rebuild sensors. Please check the logs for details.",
+      "client_not_found": "API client not found. Please reload the integration."
+    }
+  },
+  "application_credentials": {
+    "description": "This integration no longer uses Application Credentials. Add the integration instead and enter your Smartcar API Credentials there ({setup_url})."
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Nissan NA Configuration",
+        "description": "Choose a configuration option:\n\nRefresh All Sensors: {refresh_info}\n\nRebuild Sensors: {rebuild_info}\n\nRe-load Entities: {reload_info}\n\nConfigure Webhooks: {webhook_info}\n\nRe-authorize Integration: {reauth_info}",
+        "menu_options": {
+          "unit_system": "Configure Units (Metric/Imperial)",
+          "refresh_sensors": "Refresh All Sensors",
+          "rebuild_sensors": "Rebuild Sensors",
+          "reload_entities": "Re-load Entities",
+          "webhook_config": "Configure Webhooks",
+          "reauth": "Re-authorize Integration"
+        }
+      },
+      "unit_system": {
+        "title": "Configure Unit System",
+        "description": "Select your preferred unit system. The integration will reload to apply changes.\n\nCurrent: {current_system}",
+        "data": {
+          "unit_system": "Unit System"
+        },
+        "data_description": {
+          "unit_system": "Choose between metric (km, L, °C) or imperial (mi, gal, °F) units"
+        }
+      },
+      "refresh_sensors": {
+        "title": "Refresh All Sensors",
+        "description": "Manually fetch the latest vehicle data from Smartcar for all sensors."
+      },
+      "refresh_complete": {
+        "title": "Refresh Complete",
+        "description": "Sensor refresh completed:\n\n✓ {refreshed} sensors updated successfully\n✗ {failed} sensors failed\n\nTotal sensors: {total}\n\nClick Submit to return to the menu."
+      },
+      "rebuild_sensors": {
+        "title": "Rebuild All Sensors",
+        "description": "This will validate all sensors against the vehicle's available signals API and:\n\n• Remove any sensors that are no longer supported by your vehicle\n• Add any new sensors that are now available\n\nThis is useful after vehicle software updates or when signals become available/unavailable.\n\nClick Submit to rebuild sensors."
+      },
+      "rebuild_complete": {
+        "title": "Sensor Rebuild Complete",
+        "description": "Sensor rebuild completed:\n\nInitial sensors: {initial}\nFinal sensors: {final}\n✓ {added} sensors added\n✗ {removed} sensors removed\n\nClick Submit to return to the menu."
+      },
+      "reload_entities": {
+        "title": "Re-load Entities",
+        "description": "Discover and load any new entities that were not available in the previous integration version."
+      },
+      "reload_complete": {
+        "title": "Entity Re-load Complete",
+        "description": "Entity re-load completed:\n\nInitial sensors: {initial}\nFinal sensors: {final}\nNew sensors discovered: {new}\n\nClick Submit to return to the menu."
+      },
+      "webhook_config": {
+        "title": "Webhook Configuration",
+        "description": "Configure real-time vehicle updates via webhooks.\n\nWebhook URL: {webhook_url}\n\nEnter your Application Management Token from the Smartcar Dashboard to enable webhook signature verification.",
+        "data": {
+          "management_token": "Application Management Token (optional)"
+        },
+        "data_description": {
+          "management_token": "Required for webhook support. Get this from your Smartcar Dashboard under Application Settings."
+        }
+      },
+      "reauth": {
+        "title": "Re-authorize Integration",
+        "description": "Click Submit to re-enter your Smartcar API Credentials."
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "battery_percent_remaining": {
+        "name": "Battery Percentage",
+        "description": "Battery charge percentage"
+      },
+      "battery_range": {
+        "name": "Battery Range",
+        "description": "Estimated driving range on battery charge"
+      },
+      "battery_capacity_kwh": {
+        "name": "Battery Capacity",
+        "description": "Total battery capacity in kilowatt-hours"
+      },
+      "battery_low_voltage_percent": {
+        "name": "Low Voltage Battery Level",
+        "description": "12V auxiliary battery charge percentage"
+      },
+      "charge_is_plugged_in": {
+        "name": "Charger Plugged In",
+        "description": "Whether the charging cable is connected"
+      },
+      "charge_state": {
+        "name": "Charging Status",
+        "description": "Current charging state (CHARGING, FULLY_CHARGED, etc)"
+      },
+      "charge_voltage": {
+        "name": "Charge Voltage",
+        "description": "Voltage during charging"
+      },
+      "charge_amperage": {
+        "name": "Charge Current",
+        "description": "Current (amperage) during charging"
+      },
+      "charge_wattage": {
+        "name": "Charge Power",
+        "description": "Power (wattage) during charging"
+      },
+      "charge_time_to_complete": {
+        "name": "Time to Full Charge",
+        "description": "Estimated time to complete charging"
+      },
+      "charge_amperage_max": {
+        "name": "Max Charge Current",
+        "description": "Maximum charging current available"
+      },
+      "fuel_amount_remaining": {
+        "name": "Fuel Amount",
+        "description": "Amount of fuel remaining in liters"
+      },
+      "fuel_percent_remaining": {
+        "name": "Fuel Percentage",
+        "description": "Fuel tank percentage"
+      },
+      "fuel_range": {
+        "name": "Fuel Range",
+        "description": "Estimated driving range on remaining fuel"
+      },
+      "tire_pressure_front_left": {
+        "name": "Front Left Tire Pressure",
+        "description": "Tire pressure for front left wheel"
+      },
+      "tire_pressure_front_right": {
+        "name": "Front Right Tire Pressure",
+        "description": "Tire pressure for front right wheel"
+      },
+      "tire_pressure_back_left": {
+        "name": "Rear Left Tire Pressure",
+        "description": "Tire pressure for rear left wheel"
+      },
+      "tire_pressure_back_right": {
+        "name": "Rear Right Tire Pressure",
+        "description": "Tire pressure for rear right wheel"
+      },
+      "odometer": {
+        "name": "Odometer",
+        "description": "Total miles/kilometers driven"
+      },
+      "engine_oil_life_remaining": {
+        "name": "Oil Life Remaining",
+        "description": "Percentage of oil life remaining"
+      },
+      "vehicle_software_version": {
+        "name": "Software Version",
+        "description": "Vehicle firmware/software version"
+      },
+      "location_latitude": {
+        "name": "Latitude",
+        "description": "Vehicle GPS latitude coordinate"
+      },
+      "location_longitude": {
+        "name": "Longitude",
+        "description": "Vehicle GPS longitude coordinate"
+      },
+      "connectivity_is_online": {
+        "name": "Vehicle Online",
+        "description": "Whether the vehicle is connected to the network"
+      },
+      "connectivity_is_asleep": {
+        "name": "Vehicle Sleeping",
+        "description": "Whether the vehicle is in sleep mode"
+      },
+      "connectivity_digital_key_paired": {
+        "name": "Digital Key Paired",
+        "description": "Whether a digital key is paired"
+      },
+      "surveillance_enabled": {
+        "name": "Surveillance Enabled",
+        "description": "Whether vehicle surveillance is enabled"
+      },
+      "battery_heater_active": {
+        "name": "Battery Heater Active",
+        "description": "Whether the battery heater is running"
+      },
+      "charge_limit": {
+        "name": "Charge Limit",
+        "description": "Target battery charge percentage"
+      },
+      "vehicle_current_gear": {
+        "name": "Current Gear",
+        "description": "Current transmission gear (P, R, N, D, etc)"
+      }
+    },
+    "binary_sensor": {
+      "door_front_left_open": {
+        "name": "Front Left Door",
+        "description": "Front left door open status"
+      },
+      "door_front_left_locked": {
+        "name": "Front Left Door Lock",
+        "description": "Front left door lock status"
+      },
+      "door_front_right_open": {
+        "name": "Front Right Door",
+        "description": "Front right door open status"
+      },
+      "door_front_right_locked": {
+        "name": "Front Right Door Lock",
+        "description": "Front right door lock status"
+      },
+      "door_rear_left_open": {
+        "name": "Rear Left Door",
+        "description": "Rear left door open status"
+      },
+      "door_rear_left_locked": {
+        "name": "Rear Left Door Lock",
+        "description": "Rear left door lock status"
+      },
+      "door_rear_right_open": {
+        "name": "Rear Right Door",
+        "description": "Rear right door open status"
+      },
+      "door_rear_right_locked": {
+        "name": "Rear Right Door Lock",
+        "description": "Rear right door lock status"
+      },
+      "window_front_left_open": {
+        "name": "Front Left Window",
+        "description": "Front left window open status"
+      },
+      "window_front_right_open": {
+        "name": "Front Right Window",
+        "description": "Front right window open status"
+      },
+      "window_rear_left_open": {
+        "name": "Rear Left Window",
+        "description": "Rear left window open status"
+      },
+      "window_rear_right_open": {
+        "name": "Rear Right Window",
+        "description": "Rear right window open status"
+      },
+      "trunk_front_open": {
+        "name": "Front Trunk/Hood",
+        "description": "Front trunk (hood) open status"
+      },
+      "trunk_front_locked": {
+        "name": "Front Trunk/Hood Lock",
+        "description": "Front trunk (hood) lock status"
+      },
+      "trunk_rear_open": {
+        "name": "Rear Trunk",
+        "description": "Rear trunk open status"
+      },
+      "trunk_rear_locked": {
+        "name": "Rear Trunk Lock",
+        "description": "Rear trunk lock status"
+      },
+      "engine_cover_open": {
+        "name": "Engine Cover",
+        "description": "Engine cover open status"
+      },
+      "sunroof_open": {
+        "name": "Sunroof",
+        "description": "Sunroof open status"
+      },
+      "battery_heater_active": {
+        "name": "Battery Heater Running",
+        "description": "Battery heater active status"
+      },
+      "vehicle_online": {
+        "name": "Online",
+        "description": "Vehicle connected to network"
+      },
+      "vehicle_asleep": {
+        "name": "Sleeping",
+        "description": "Vehicle in sleep mode"
+      },
+      "digital_key_paired": {
+        "name": "Digital Key",
+        "description": "Digital key pairing status"
+      },
+      "surveillance_enabled": {
+        "name": "Surveillance",
+        "description": "Surveillance system status"
+      },
+      "fast_charger_connected": {
+        "name": "Fast Charger Connected",
+        "description": "DC fast charger connection status"
+      },
+      "charging_cable_plugged_in": {
+        "name": "Charging Cable",
+        "description": "Charging cable connection status"
+      }
+    },
+    "switch": {
+      "charging": {
+        "name": "Charging",
+        "description": "Start or stop vehicle charging"
+      }
+    },
+    "number": {
+      "charge_limit": {
+        "name": "Charge Limit",
+        "description": "Set target battery charge percentage (0-100%)"
+      }
+    }
+  }
+}

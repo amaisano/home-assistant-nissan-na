@@ -40,7 +40,7 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
             pass
 
         if should_create:
-            status = await client.get_vehicle_status(vehicle.vin)
+            status = await client.get_vehicle_status(vehicle.id)
             entities.append(
                 NissanVehicleTracker(hass, vehicle, status, config_entry.entry_id)
             )

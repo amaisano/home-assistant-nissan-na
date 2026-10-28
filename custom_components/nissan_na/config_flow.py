@@ -1,14 +1,26 @@
 """Config flow for Nissan North America integration.
-Uses Smartcar API Authentication (OAuth2 Client Credentials)."""
+
+Patched flow: Home Assistant's OAuth2 callback view only forwards ``state``
+and ``code`` to a config flow, so the ``user_id`` Smartcar appends to the
+Connect redirect never reaches the integration (issue #39). Smartcar v3 API
+calls also need the *API Credentials* client ID (``client_01...``), which is
+not the Application ID that Smartcar Connect accepts.
+
+So instead of an OAuth round trip, the vehicle is connected once in the
+Smartcar Dashboard, and this flow asks for the API Credentials. The user ID
+is discovered from the Connections API (or can be pasted from the dashboard).
+"""
 
 import logging
+import re
 from typing import Any
 
 import voluptuous as vol
 from homeassistant import config_entries
-from homeassistant.helpers import config_entry_oauth2_flow
 
 from .const import (
+    CONF_CLIENT_ID,
+    CONF_CLIENT_SECRET,
     CONF_MANAGEMENT_TOKEN,
     CONF_UNIT_SYSTEM,
     CONF_USER_ID,
@@ -20,134 +32,139 @@ from .nissan_api import SmartcarApiClient
 
 _LOGGER = logging.getLogger(__name__)
 
+_UUID_RE = re.compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.I
+)
 
-class OAuth2FlowHandler(
-    config_entry_oauth2_flow.AbstractOAuth2FlowHandler, domain=DOMAIN
-):
-    """Config flow to handle Smartcar OAuth2 authentication."""
 
-    DOMAIN = DOMAIN
-
-    @property
-    def logger(self) -> logging.Logger:
-        return _LOGGER
-
-    @property
-    def extra_authorize_data(self) -> dict[str, Any]:
-        """Extra data appended to the Smartcar Connect authorize URL."""
-        scopes = [
-            "required:read_vehicle_info",
-            "required:read_location",
-            "required:read_odometer",
-            "required:control_security",
-            "read_battery",
-            "read_charge",
-            "control_charge",
-            "read_charge_locations",
-            "read_charge_records",
-            "read_fuel",
-            "read_vin",
-            "read_security",
-            "read_tires",
-            "read_engine_oil",
-            "read_thermometer",
-            "read_speedometer",
-            "read_compass",
-            "read_climate",
-            "control_climate",
-            "read_alerts",
-            "read_diagnostics",
-            "read_extended_vehicle_info",
-            "read_service_history",
-            "read_user_profile",
-            "control_navigation",
-            "control_trunk",
-        ]
-        return {
-            "scope": " ".join(scopes),
-            "make": "NISSAN",
-            "single_select": "true",
+def _credentials_schema(defaults: dict[str, Any]) -> vol.Schema:
+    """Form for the Smartcar API Credentials and optional user ID."""
+    return vol.Schema(
+        {
+            vol.Required(
+                CONF_CLIENT_ID,
+                description={"suggested_value": defaults.get(CONF_CLIENT_ID, "")},
+            ): str,
+            vol.Required(CONF_CLIENT_SECRET): str,
+            vol.Optional(
+                CONF_USER_ID,
+                description={"suggested_value": defaults.get(CONF_USER_ID, "")},
+            ): str,
         }
+    )
 
-    async def async_step_creation(self, user_input: dict | None = None) -> dict:
-        """Skip the OAuth code→token exchange entirely.
 
-        Smartcar Connect redirects back with a `user_id` (new API Auth flow)
-        or `userId` (migration flow) parameter directly in the redirect URL.
-        HA captures these in `self.external_data`.  We read the user ID from
-        there and call `async_oauth_create_entry` — never touching the token
-        endpoint.
-        """
-        external = getattr(self, "external_data", None) or {}
-        # New API Auth flow uses `user_id`; migration flow uses `userId`
-        user_id = external.get("user_id") or external.get("userId")
-        if not user_id:
-            _LOGGER.error(
-                "Smartcar Connect redirect did not include a user_id. "
-                "Ensure your application is using the v3 API. Params received: %s",
-                list(external.keys()),
-            )
-            return self.async_abort(reason="missing_user_id")
+async def _async_validate(
+    user_input: dict[str, Any],
+) -> tuple[dict[str, Any] | None, dict[str, str]]:
+    """Check credentials, resolve the user ID, and confirm a vehicle exists.
 
-        self._smartcar_user_id: str = user_id
-        _LOGGER.debug("Captured user_id from Connect redirect: %s", user_id)
-        # Bypass super() to skip token exchange
-        return await self.async_oauth_create_entry(
-            {"auth_implementation": self.flow_impl.domain}
-        )
+    Returns (entry_data, errors). entry_data is None when validation failed.
+    """
+    errors: dict[str, str] = {}
+    client_id = user_input[CONF_CLIENT_ID].strip()
+    client_secret = user_input[CONF_CLIENT_SECRET].strip()
+    user_id = (user_input.get(CONF_USER_ID) or "").strip() or None
 
-    async def async_oauth_create_entry(self, data: dict) -> dict:
-        """Create a config entry after Connect completes — no tokens stored."""
-        if not self.flow_impl.client_id or not self.flow_impl.client_secret:
-            _LOGGER.error("API credentials not configured.")
-            return self.async_abort(reason="missing_credentials")
+    client = SmartcarApiClient(
+        client_id=client_id, client_secret=client_secret, user_id=user_id
+    )
 
-        user_id: str | None = getattr(self, "_smartcar_user_id", None)
-        if not user_id:
-            return self.async_abort(reason="missing_user_id")
+    try:
+        await client.async_validate_credentials()
+    except Exception as err:  # noqa: BLE001
+        _LOGGER.warning("Smartcar API credential check failed: %s", err)
+        # The Application ID (a UUID) only works for Smartcar Connect; the v3
+        # API token endpoint needs the API Credentials client ID.
+        if _UUID_RE.match(client_id):
+            errors[CONF_CLIENT_ID] = "application_id_not_api_client_id"
+        else:
+            errors["base"] = "invalid_auth"
+        return None, errors
 
-        client = SmartcarApiClient(
-            client_id=self.flow_impl.client_id,
-            client_secret=self.flow_impl.client_secret,
-            user_id=user_id,
-        )
+    if not user_id:
         try:
-            vehicles = await client.get_vehicle_list()
-            if not vehicles:
-                return self.async_abort(reason="no_vehicles")
-        except Exception as err:
-            _LOGGER.error("Error fetching vehicles: %s", err, exc_info=True)
-            return self.async_abort(reason="connection_error")
+            user_ids = await client.discover_user_ids()
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.warning("Could not discover Smartcar user ID: %s", err)
+            errors[CONF_USER_ID] = "user_id_lookup_failed"
+            return None, errors
+        if not user_ids:
+            errors["base"] = "no_connections"
+            return None, errors
+        if len(user_ids) > 1:
+            _LOGGER.warning("Multiple Smartcar user IDs found: %s", user_ids)
+            errors[CONF_USER_ID] = "multiple_users"
+            return None, errors
+        user_id = user_ids[0]
+        client.user_id = user_id
+        _LOGGER.debug("Discovered Smartcar user ID %s", user_id)
 
-        entry_data = {
-            "auth_implementation": data.get(
-                "auth_implementation", self.flow_impl.domain
-            ),
+    try:
+        vehicles = await client.get_vehicle_list()
+    except Exception as err:  # noqa: BLE001
+        _LOGGER.error("Error fetching vehicles: %s", err, exc_info=True)
+        errors["base"] = "cannot_connect"
+        return None, errors
+    if not vehicles:
+        errors["base"] = "no_vehicles"
+        return None, errors
+
+    return (
+        {
+            CONF_CLIENT_ID: client_id,
+            CONF_CLIENT_SECRET: client_secret,
             CONF_USER_ID: user_id,
-        }
+        },
+        errors,
+    )
 
-        if self.source == config_entries.SOURCE_REAUTH:
-            reauth_entry = self._get_reauth_entry()
-            self.hass.config_entries.async_update_entry(reauth_entry, data=entry_data)
-            await self.hass.config_entries.async_reload(reauth_entry.entry_id)
-            return self.async_abort(reason="reauth_successful")
 
-        return self.async_create_entry(title="Nissan (Smartcar)", data=entry_data)
+class NissanNAConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
+    """Config flow using Smartcar API Credentials (client-credentials grant)."""
 
-    async def async_step_reauth(self, entry_data: dict) -> dict:
-        """Handle reauth upon an API authentication error."""
-        entry = self.hass.config_entries.async_get_entry(self.context["entry_id"])
-        if entry and entry.unique_id:
-            await self.async_set_unique_id(entry.unique_id)
+    VERSION = 1
+
+    async def async_step_user(self, user_input: dict[str, Any] | None = None):
+        """Ask for the API Credentials and validate them."""
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            data, errors = await _async_validate(user_input)
+            if data:
+                await self.async_set_unique_id(data[CONF_USER_ID])
+                self._abort_if_unique_id_configured()
+                return self.async_create_entry(title="Nissan (Smartcar)", data=data)
+
+        return self.async_show_form(
+            step_id="user",
+            data_schema=_credentials_schema(user_input or {}),
+            errors=errors,
+        )
+
+    async def async_step_reauth(self, entry_data: dict[str, Any]):
+        """Handle reauth when credentials stop working."""
         return await self.async_step_reauth_confirm()
 
     async def async_step_reauth_confirm(
         self, user_input: dict[str, Any] | None = None
-    ) -> dict:
-        """Dialog that informs the user that reauth is required."""
-        if user_input is None:
-            return self.async_show_form(step_id="reauth_confirm")
-        return await self.async_step_user()
+    ):
+        """Re-enter API Credentials for an existing entry."""
+        entry = self._get_reauth_entry()
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            data, errors = await _async_validate(user_input)
+            if data:
+                return self.async_update_reload_and_abort(entry, data_updates=data)
+
+        defaults = user_input or {
+            CONF_CLIENT_ID: entry.data.get(CONF_CLIENT_ID, ""),
+            CONF_USER_ID: entry.data.get(CONF_USER_ID, ""),
+        }
+        return self.async_show_form(
+            step_id="reauth_confirm",
+            data_schema=_credentials_schema(defaults),
+            errors=errors,
+        )
 
     @staticmethod
     def async_get_options_flow(
