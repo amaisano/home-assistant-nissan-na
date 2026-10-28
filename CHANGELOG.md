@@ -2,6 +2,38 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.21.9.1] - 2026-10-28 (fork: amaisano)
+
+Fixes on top of upstream v0.21.9. Without them no data reached the entities.
+
+### Fixed
+
+- **Config flow:** asks for the Smartcar API Credentials client ID and secret and discovers the user ID through
+  `GET /v3/connections` (JSON:API `data[]`, `filter[userId]`, pagination), because HA's OAuth callback drops
+  Smartcar's `user_id` (#39). Vehicle Simulator connections are ignored. Legacy OAuth entries still load.
+  `translations/en.json` was missing.
+- **Signals and webhooks:** v3 signal bodies are `{"value": ...}` (SoC, range and isLocked were read as None). The v4
+  webhook parser dropped every successful signal (they carry no `status`) and keyed data by signal code instead of the
+  nested shape the entities read. Closure, connectivity, charge-limit and amperage mappings were missing.
+- **Thread safety:** all six entity webhook handlers lacked `@callback`, so `async_write_ha_state` ran from a worker
+  thread (RuntimeError on HA 2026.x).
+- **device_tracker** asked for the status of the VIN instead of the vehicle ID.
+- **Binary sensors** are created from signal codes (they never were), start `unknown` instead of `off`, are seeded from
+  the REST snapshot at setup, and accept `closure-doors` under `values` (live payloads) as well as `doors`.
+- **Lock-class binary sensors** are inverted to match HA (on = unlocked). After an unlock, null per-door/trunk
+  `isLocked` values are filled from the car-level lock.
+- **Options flow** no longer wipes `entry.options` on save. **Rebuild Sensors / Re-load Entities** no longer delete
+  sensors or build phantom ones; both reload the entry.
+- **Commands** use v3 `POST /v3/vehicles/{id}/commands/...` (lock, unlock, charge start/stop, set-limit) with a 190 s
+  timeout for 202 keep-alive results. Failures raise `HomeAssistantError` with Smartcar's error text. Climate
+  start/stop says Smartcar v3 has no climate command instead of returning 404.
+
+### Added
+
+- `state_class` on numeric sensors (odometer: `total_increasing`) for long-term statistics.
+- `tests/integration`: 40 tests that run the integration in a real hass (pytest-homeassistant-custom-component +
+  respx). Upstream unit tests updated for the fixed behavior.
+
 ## [Unreleased]
 
 ### Added

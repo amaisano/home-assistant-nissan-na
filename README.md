@@ -7,6 +7,27 @@
 ![HACS badge](https://img.shields.io/badge/HACS-Custom-blue?style=flat-square)
 ![Python](https://img.shields.io/badge/python-3.14%2B-blue?style=flat-square)
 
+> [!IMPORTANT]
+> **This is a fork** of [atheismann/home-assistant-nissan-na](https://github.com/atheismann/home-assistant-nissan-na)
+> v0.21.9 with the fixes needed to make the Smartcar v3 integration work end to end (used daily with a 2023 Ariya on
+> Home Assistant 2026.10). What changed is in the [CHANGELOG](CHANGELOG.md). Where the rest of this README disagrees,
+> these notes win:
+>
+> - **Install:** in HACS, add `https://github.com/amaisano/home-assistant-nissan-na` as a custom repository (type
+>   Integration).
+> - **Setup (replaces Setup steps 1–2 and the OAuth redirect):** connect the car to your Smartcar application first.
+>   Then add the integration and enter the **client ID (`client_…`) and secret from the Smartcar Dashboard's API
+>   Credentials tab**, not the UUID Application ID. No Application Credentials entry or OAuth redirect is needed: HA's
+>   OAuth callback drops Smartcar's `user_id` (upstream #39), so the user is found through your Smartcar connections.
+>   Vehicle Simulator connections are ignored.
+> - **Data arrives through the webhook.** Smartcar v3's REST signals are a stored snapshot that reads never refresh, so
+>   set up the webhook (save the Application Management Token in the integration options first). The generated webhook
+>   URL uses your internal URL when no external URL is set; give Smartcar your external URL (e.g. Nabu Casa) with the
+>   same `/api/webhook/<id>` path.
+> - **Re-connecting replaces permissions:** Smartcar derives a connection's permissions from the app's Vehicle access
+>   settings at connect time. Select signals, Publish, then reconnect, then reload the integration.
+> - **Climate:** Smartcar v3 has no climate command, so the climate entity can't start or stop cabin climate.
+
 Easily control and monitor your Nissan vehicle from Home Assistant using the **Smartcar API**! This integration provides reliable, standardized access to your vehicle's features through Smartcar's platform, supporting lock/unlock, battery monitoring, location tracking, charging control, and more.
 
 ---
