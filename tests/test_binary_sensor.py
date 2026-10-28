@@ -289,7 +289,7 @@ class TestNissanBinarySensorEntity:
         )
 
         assert sensor._attr_name == "My Tesla Front Left Door"
-        assert sensor._is_on == False
+        assert sensor._is_on is None  # unknown until the first signal
         assert sensor._vehicle == mock_vehicle
         assert sensor._signal_id == "closure.doors.frontLeft.isOpen"
         assert sensor._device_class == BinarySensorDeviceClass.DOOR
@@ -409,7 +409,7 @@ class TestNissanBinarySensorEntity:
             "entry_123",
         )
 
-        assert sensor.is_on == False
+        assert sensor.is_on is None  # unknown, not off (off would read closed)
 
     def test_is_on_property_true(self):
         """Test is_on property when set to True"""
@@ -594,7 +594,8 @@ class TestBinarySensorWebhookHandling:
 
         sensor._handle_webhook_data(webhook_data)
 
-        assert sensor._is_on == True
+        # lock device class: on = unlocked, so isLocked True -> off
+        assert sensor._is_on is False
         sensor.async_write_ha_state.assert_called_once()
 
     def test_handle_webhook_data_missing_key(self):
@@ -623,7 +624,7 @@ class TestBinarySensorWebhookHandling:
 
         sensor._handle_webhook_data(webhook_data)
 
-        assert sensor._is_on == False
+        assert sensor._is_on is None
         sensor.async_write_ha_state.assert_not_called()
 
     def test_handle_webhook_data_invalid_type(self):
@@ -651,7 +652,7 @@ class TestBinarySensorWebhookHandling:
         # Pass non-dict data
         sensor._handle_webhook_data("invalid")
 
-        assert sensor._is_on == False
+        assert sensor._is_on is None
         sensor.async_write_ha_state.assert_not_called()
 
     def test_handle_webhook_data_connectivity(self):

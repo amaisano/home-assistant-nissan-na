@@ -3,11 +3,13 @@
 import pytest
 from unittest.mock import MagicMock, AsyncMock, patch
 from homeassistant.components.number import NumberEntity
+from homeassistant.exceptions import HomeAssistantError
 from custom_components.nissan_na.number import (
     NissanChargeLimitNumber,
     async_setup_entry,
 )
 from custom_components.nissan_na.const import DOMAIN
+from custom_components.nissan_na.nissan_api import SmartcarCommandError
 
 
 @pytest.mark.asyncio
@@ -228,32 +230,19 @@ class TestNissanChargeLimitNumber:
     async def test_async_set_native_value_success(
         self, mock_hass, mock_vehicle, mock_client
     ):
-        """Test setting charge limit successfully."""
+        """Test setting charge limit successfully (v3 commands/charge/set-limit)."""
         number = NissanChargeLimitNumber(
             mock_hass,
             mock_vehicle,
             mock_client,
             "test_entry",
         )
-
-        # Mock async_write_ha_state
         number.async_write_ha_state = MagicMock()
-        mock_client._get_access_token = AsyncMock(return_value="test_token")
+        mock_client.set_charge_limit = AsyncMock(return_value={})
 
-        mock_response = MagicMock()
-        mock_response.status_code = 200
+        await number.async_set_native_value(85.0)
 
-        mock_httpx = AsyncMock()
-        mock_httpx.__aenter__ = AsyncMock(return_value=mock_httpx)
-        mock_httpx.__aexit__ = AsyncMock(return_value=False)
-        mock_httpx.post = AsyncMock(return_value=mock_response)
-
-        with patch(
-            "custom_components.nissan_na.number.httpx.AsyncClient",
-            return_value=mock_httpx,
-        ):
-            await number.async_set_native_value(85.0)
-
+        mock_client.set_charge_limit.assert_awaited_once_with(mock_vehicle.id, 85)
         assert number._attr_native_value == 85
         number.async_write_ha_state.assert_called_once()
 
@@ -268,62 +257,41 @@ class TestNissanChargeLimitNumber:
             mock_client,
             "test_entry",
         )
-
-        # Mock async_write_ha_state
         number.async_write_ha_state = MagicMock()
-        mock_client._get_access_token = AsyncMock(return_value="test_token")
+        mock_client.set_charge_limit = AsyncMock(return_value={})
 
-        mock_response = MagicMock()
-        mock_response.status_code = 200
+        # Test upper bound
+        await number.async_set_native_value(150.0)
+        assert number._attr_native_value == 100
+        mock_client.set_charge_limit.assert_awaited_with(mock_vehicle.id, 100)
 
-        mock_httpx = AsyncMock()
-        mock_httpx.__aenter__ = AsyncMock(return_value=mock_httpx)
-        mock_httpx.__aexit__ = AsyncMock(return_value=False)
-        mock_httpx.post = AsyncMock(return_value=mock_response)
-
-        with patch(
-            "custom_components.nissan_na.number.httpx.AsyncClient",
-            return_value=mock_httpx,
-        ):
-            # Test upper bound
-            await number.async_set_native_value(150.0)
-            assert number._attr_native_value == 100
-
-            # Test lower bound
-            await number.async_set_native_value(-10.0)
-            assert number._attr_native_value == 0
+        # Test lower bound
+        await number.async_set_native_value(-10.0)
+        assert number._attr_native_value == 0
+        mock_client.set_charge_limit.assert_awaited_with(mock_vehicle.id, 0)
 
     @pytest.mark.asyncio
     async def test_async_set_native_value_failure(
         self, mock_hass, mock_vehicle, mock_client
     ):
-        """Test setting charge limit handles failure."""
+        """A rejected command surfaces as HomeAssistantError; value unchanged."""
         number = NissanChargeLimitNumber(
             mock_hass,
             mock_vehicle,
             mock_client,
             "test_entry",
         )
-
-        # Mock async_write_ha_state
         number.async_write_ha_state = MagicMock()
-        mock_client._get_access_token = AsyncMock(return_value="test_token")
+        before = number._attr_native_value
+        mock_client.set_charge_limit = AsyncMock(
+            side_effect=SmartcarCommandError("charge/set-limit failed - FAILURE")
+        )
 
-        mock_response = MagicMock()
-        mock_response.status_code = 500
-
-        mock_httpx = AsyncMock()
-        mock_httpx.__aenter__ = AsyncMock(return_value=mock_httpx)
-        mock_httpx.__aexit__ = AsyncMock(return_value=False)
-        mock_httpx.post = AsyncMock(return_value=mock_response)
-
-        with patch(
-            "custom_components.nissan_na.number.httpx.AsyncClient",
-            return_value=mock_httpx,
-        ):
+        with pytest.raises(HomeAssistantError, match="FAILURE"):
             await number.async_set_native_value(90.0)
 
-        assert number._attr_available is False
+        assert number._attr_native_value == before
+        number.async_write_ha_state.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_async_set_native_value_exception(
@@ -336,17 +304,15 @@ class TestNissanChargeLimitNumber:
             mock_client,
             "test_entry",
         )
-
-        # Mock async_write_ha_state
         number.async_write_ha_state = MagicMock()
+        mock_client.set_charge_limit = AsyncMock(
+            side_effect=Exception("Connection error")
+        )
 
-        with patch(
-            "custom_components.nissan_na.number.httpx.AsyncClient",
-            side_effect=Exception("Connection error"),
-        ):
+        with pytest.raises(HomeAssistantError, match="Connection error"):
             await number.async_set_native_value(90.0)
 
-        assert number._attr_available is False
+        number.async_write_ha_state.assert_not_called()
 
 
 class TestAsyncSetupEntryErrorHandling:
@@ -608,10 +574,10 @@ class TestNumberPropertiesAndAttributes:
         assert number._attr_available is False
 
     @pytest.mark.asyncio
-    async def test_async_set_native_value_with_204_response(
+    async def test_async_set_native_value_with_empty_response(
         self, mock_hass, mock_vehicle, mock_client
     ):
-        """Test async_set_native_value handles 204 (No Content) response."""
+        """A command result with no body still sets the value."""
         number = NissanChargeLimitNumber(
             mock_hass,
             mock_vehicle,
@@ -620,21 +586,9 @@ class TestNumberPropertiesAndAttributes:
         )
 
         number.async_write_ha_state = MagicMock()
-        mock_client._get_access_token = AsyncMock(return_value="test_token")
+        mock_client.set_charge_limit = AsyncMock(return_value=None)
 
-        mock_response = MagicMock()
-        mock_response.status_code = 204
-
-        mock_httpx = AsyncMock()
-        mock_httpx.__aenter__ = AsyncMock(return_value=mock_httpx)
-        mock_httpx.__aexit__ = AsyncMock(return_value=False)
-        mock_httpx.post = AsyncMock(return_value=mock_response)
-
-        with patch(
-            "custom_components.nissan_na.number.httpx.AsyncClient",
-            return_value=mock_httpx,
-        ):
-            await number.async_set_native_value(75.0)
+        await number.async_set_native_value(75.0)
 
         assert number._attr_native_value == 75
         assert number._attr_available is True

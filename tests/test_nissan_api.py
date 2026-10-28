@@ -4,6 +4,7 @@ import pytest
 from unittest.mock import Mock, patch, MagicMock, AsyncMock
 from custom_components.nissan_na.nissan_api import (
     SmartcarApiClient,
+    SmartcarCommandError,
     Vehicle,
     _namedtuple_to_dict,
 )
@@ -744,24 +745,15 @@ class TestClimateControl:
     """Tests for climate control methods"""
 
     @pytest.mark.asyncio
-    async def test_start_climate_success(self):
-        body = {"status": "success"}
-        with patch(
-            "custom_components.nissan_na.nissan_api.httpx.AsyncClient",
-            return_value=_make_v3_post_mock(body),
-        ):
-            result = await _make_client().start_climate("vehicle_1")
-        assert result["status"] == "success"
+    async def test_start_climate_unsupported(self):
+        """Smartcar v3 has no climate command; say so instead of a 404."""
+        with pytest.raises(SmartcarCommandError, match="no climate command"):
+            await _make_client().start_climate("vehicle_1")
 
     @pytest.mark.asyncio
-    async def test_stop_climate_success(self):
-        body = {"status": "success"}
-        with patch(
-            "custom_components.nissan_na.nissan_api.httpx.AsyncClient",
-            return_value=_make_v3_post_mock(body),
-        ):
-            result = await _make_client().stop_climate("vehicle_1")
-        assert result["status"] == "success"
+    async def test_stop_climate_unsupported(self):
+        with pytest.raises(SmartcarCommandError, match="no climate command"):
+            await _make_client().stop_climate("vehicle_1")
 
     @pytest.mark.asyncio
     async def test_get_climate_status_success(self):

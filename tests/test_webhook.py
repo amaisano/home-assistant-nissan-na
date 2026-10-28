@@ -142,7 +142,8 @@ class TestSmartcarSignalParser:
         ]
 
         result = _parse_smartcar_signals(signals)
-        assert result == {"internalcombustionengine-fuellevel": 65}
+        # Mapped into the nested status shape the entities read
+        assert result == {"fuel": {"percentRemaining": 65}}
 
     def test_parse_smartcar_signals_complex_location(self):
         """Test parsing complex location signal."""
@@ -165,41 +166,38 @@ class TestSmartcarSignalParser:
         ]
 
         result = _parse_smartcar_signals(signals)
-        # Complex objects should be stored as-is
-        assert "location-preciselocation" in result
-        assert result["location-preciselocation"]["latitude"] == 51.5014
-        assert result["location-preciselocation"]["longitude"] == -0.1419
+        assert result["location"]["latitude"] == 51.5014
+        assert result["location"]["longitude"] == -0.1419
 
     def test_parse_smartcar_signals_multiple_signals(self):
-        """Test parsing multiple signals."""
+        """Test parsing multiple signals (v3 bodies are {"value": ...})."""
         from custom_components.nissan_na.webhook import _parse_smartcar_signals
 
         signals = [
             {
                 "code": "charge-ischarging",
                 "name": "IsCharging",
-                "body": True,
+                "body": {"value": True},
                 "status": {"value": "SUCCESS"},
             },
             {
                 "code": "closure-islocked",
                 "name": "IsLocked",
-                "body": False,
+                "body": {"value": False},
                 "status": {"value": "SUCCESS"},
             },
             {
-                "code": "battery-percent",
-                "name": "BatteryPercent",
+                "code": "tractionbattery-stateofcharge",
+                "name": "StateOfCharge",
                 "body": {"value": 78, "unit": "percent"},
                 "status": {"value": "SUCCESS"},
             },
         ]
 
         result = _parse_smartcar_signals(signals)
-        assert len(result) == 3
-        assert result["charge-ischarging"] is True
-        assert result["closure-islocked"] is False
-        assert result["battery-percent"] == 78
+        assert result["charge"]["isCharging"] is True
+        assert result["security"]["isLocked"] is False
+        assert result["battery"]["percentRemaining"] == 78
 
     def test_parse_smartcar_signals_skips_failed_status(self):
         """Test that signals with non-SUCCESS status are skipped."""
