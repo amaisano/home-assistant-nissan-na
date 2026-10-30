@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.21.9.2] - 2026-10-30 (fork: amaisano)
+
+### Fixed
+
+- **Hourly poll** made one `/signals` call per sensor (it called each sensor's `async_update()`), plus the loop's own
+  call, and threw the loop's result away. It also logged an error every hour for each sensor disabled in the registry
+  (HA never adds those, so their `hass` is None), and the refreshed values were never written to the state machine.
+  Now each vehicle is fetched once and the result is pushed to its live sensors, which write their state.
+- **`nissan_na.refresh_status`** fetched the status and discarded it; it now updates the sensors.
+- **Options > Refresh sensors** fetches once per vehicle instead of once per sensor.
+
 ## [0.21.9.1] - 2026-10-28 (fork: amaisano)
 
 Fixes on top of upstream v0.21.9. Without them no data reached the entities.
