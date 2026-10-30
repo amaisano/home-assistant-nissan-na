@@ -986,8 +986,14 @@ class SmartcarApiClient:
             code = attrs.get("code", "")
             if not code:
                 continue
-            if attrs.get("status", {}).get("value") != "SUCCESS":
-                continue
+            sig_status = attrs.get("status") or {}
+            if sig_status.get("value") != "SUCCESS":
+                # When Smartcar's latest read fails upstream (the OEM), the
+                # signal still carries the last good body (meta.retrievedAt).
+                # Keep it: otherwise a restart during an OEM outage leaves the
+                # entities unknown. Permission/compatibility errors stay out.
+                if (sig_status.get("error") or {}).get("type") != "UPSTREAM":
+                    continue
             body = attrs.get("body")
             if body:
                 self._apply_signal_to_status(status, code, body)

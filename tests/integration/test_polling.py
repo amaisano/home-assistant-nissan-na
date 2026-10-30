@@ -1,8 +1,12 @@
-"""Periodic and manual refreshes: one /signals call per vehicle, disabled sensors skipped.
+"""REST status reads: refresh fan-out, and signals whose latest OEM read failed.
 
 Before 0.21.9.2 the hourly loop called async_update() on every sensor: one
 /signals call each, plus an error per registry-disabled sensor (HA never adds
 those, so their hass is None).
+
+Before 0.21.9.3 a signal whose latest read failed upstream was dropped even
+though Smartcar still returns its last good body, so a restart during a Nissan
+outage left the entities unknown (live 2026-10-30 08:28).
 """
 
 import copy
@@ -94,4 +98,49 @@ async def test_refreshes_fetch_once_and_skip_disabled_sensors(hass, caplog):
 
     assert "Failed to update sensor" not in caplog.text
     assert "Failed to update vehicle" not in caplog.text
+    assert await hass.config_entries.async_unload(entry.entry_id)
+
+
+def _upstream_err(code, body):
+    """Shape of a live Ariya signal on 2026-10-30 08:29 while Nissan was failing."""
+    return {"id": code, "type": "signal",
+            "attributes": {"code": code, "body": body, "status": {"value": "ERROR", "error": {
+                "type": "UPSTREAM", "code": "KNOWN_ISSUE", "title": "Known Issue",
+                "detail": "Smartcar received an error from an upstream source. Please retry your request at a later time.",
+                "resolution": {"type": "RETRY_LATER"}}}},
+            "meta": {"ingestedAt": "2026-10-30T12:29:54.372Z", "retrievedAt": "2026-10-30T11:58:33.593Z",
+                     "oemUpdatedAt": "2026-10-30T11:58:02.000Z"}}
+
+
+@respx.mock
+async def test_upstream_error_keeps_last_good_body(hass):
+    snap = copy.deepcopy(LIVE_SNAPSHOT)
+    replace = {
+        "tractionbattery-stateofcharge": _upstream_err("tractionbattery-stateofcharge", {"value": 77, "unit": "percent"}),
+        "closure-islocked": _upstream_err("closure-islocked", {"value": True}),
+    }
+    snap["data"] = [replace.get(s["attributes"]["code"], s) for s in snap["data"]]
+    # A permission error must not be trusted even if it carries a body
+    for s in snap["data"]:
+        if s["attributes"]["code"] == "odometer-traveleddistance":
+            s["attributes"]["status"] = {"value": "ERROR", "error": {"type": "PERMISSION", "code": "X"}}
+
+    entry = MockConfigEntry(
+        domain=DOMAIN, unique_id=USER,
+        data={"client_id": API_CLIENT_ID, "client_secret": "s", "user_id": USER, "management_token": MGMT},
+    )
+    entry.add_to_hass(hass)
+    _mock_token()
+    _mock_connections([_conn()])
+    _mock_vin()
+    respx.get(f"{V3}/vehicles/{VEH}/signals").mock(return_value=httpx.Response(200, json=snap))
+    respx.route(host="vehicle.api.smartcar.com").mock(return_value=httpx.Response(404, json={"errors": []}))
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    assert hass.states.get(BATTERY).state == "77"
+    lock = [s for s in hass.states.async_all("lock")][0]
+    assert lock.state == "locked"
+    odo = hass.states.get("sensor.2024_nissan_leaf_odometer")
+    assert odo is None or odo.state == "unknown"
     assert await hass.config_entries.async_unload(entry.entry_id)
