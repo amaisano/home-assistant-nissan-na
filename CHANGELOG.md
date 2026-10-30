@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.21.9.3] - 2026-10-30 (fork: amaisano)
+
+### Fixed
+
+- **OEM outages no longer blank the entities.** When Smartcar's latest read of a signal fails upstream (Nissan), the
+  `/signals` entry has status `ERROR`/`UPSTREAM` but still carries the last good body (see `meta.retrievedAt`). Those
+  bodies were dropped, so a restart during a Nissan outage left battery, lock and the rest `unknown`. They are now
+  used; permission and compatibility errors are still ignored.
+
 ## [0.21.9.2] - 2026-10-30 (fork: amaisano)
 
 ### Fixed
