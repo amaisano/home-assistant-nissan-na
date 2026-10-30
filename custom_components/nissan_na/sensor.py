@@ -399,6 +399,24 @@ SENSOR_DEFINITIONS = [
 ]
 
 
+@callback
+def async_push_status_to_sensors(data: dict, vehicle_id: str, status: dict) -> int:
+    """Hand one fetched status to every live sensor of a vehicle.
+
+    One /signals call serves all of a vehicle's sensors, instead of each
+    sensor fetching its own copy. Sensors disabled in the registry are never
+    added to hass (HA clears their hass/platform), so they are skipped.
+    Returns how many sensors were updated.
+    """
+    updated = 0
+    for sensor in data.get("sensors", {}).get(vehicle_id, {}).values():
+        if sensor.hass is None or sensor.platform is None or not sensor.enabled:
+            continue
+        sensor.async_apply_status(status)
+        updated += 1
+    return updated
+
+
 async def async_setup_entry(hass, config_entry, async_add_entities, rebuild_mode=False):
     """
     Set up Nissan NA sensors for each vehicle and status data point.
@@ -873,6 +891,13 @@ class NissanGenericSensor(SensorEntity):
             )
         except Exception as err:
             _LOGGER.error("Failed to update sensor %s: %s", self._attr_name, err)
+
+    @callback
+    def async_apply_status(self, status: dict) -> None:
+        """Merge an already-fetched status and write the new state (no API call)."""
+        self._status.update(status)
+        self._attr_native_value = self._compute_native_value()
+        self.async_write_ha_state()
 
     def _compute_native_value(self):
         """Compute the current sensor value from the status dict."""

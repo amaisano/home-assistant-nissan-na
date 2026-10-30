@@ -250,24 +250,19 @@ class NissanNAOptionsFlowHandler(config_entries.OptionsFlow):
             if total_sensors == 0:
                 return self.async_abort(reason="no_sensors_found")
 
+            from .sensor import async_push_status_to_sensors
+
+            # One /signals call per vehicle, not one per sensor.
+            client = data["client"]
             refreshed = 0
             failed = 0
             for vehicle_id, vehicle_sensors in sensors.items():
-                for sensor_key, sensor in vehicle_sensors.items():
-                    try:
-                        await sensor.async_update()
-                        refreshed += 1
-                    except Exception as err:
-                        _LOGGER.warning(
-                            "Failed to refresh sensor %s: %s",
-                            (
-                                sensor._attr_name
-                                if hasattr(sensor, "_attr_name")
-                                else sensor_key
-                            ),
-                            err,
-                        )
-                        failed += 1
+                status = await client.get_vehicle_status(vehicle_id)
+                if status:
+                    refreshed += async_push_status_to_sensors(data, vehicle_id, status)
+                else:
+                    _LOGGER.warning("Failed to refresh vehicle %s", vehicle_id)
+                    failed += len(vehicle_sensors)
 
             _LOGGER.info(
                 "Manual refresh completed: %d updated, %d failed", refreshed, failed

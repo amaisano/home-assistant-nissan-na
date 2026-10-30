@@ -25,6 +25,7 @@ from .const import (
 )
 
 from .nissan_api import SmartcarApiClient
+from .sensor import async_push_status_to_sensors
 from .webhook import (
     async_generate_webhook_url,
     async_register_webhook,
@@ -191,19 +192,13 @@ async def async_setup_entry(
 
         for vehicle in data["vehicles"]:
             try:
-                await client.get_vehicle_status(vehicle.id)
-                _LOGGER.debug("Updated vehicle %s from API", vehicle.vin)
-
-                if "sensors" in data and vehicle.id in data["sensors"]:
-                    for sensor in data["sensors"][vehicle.id].values():
-                        try:
-                            await sensor.async_update()
-                        except Exception as sensor_err:
-                            _LOGGER.debug(
-                                "Failed to update sensor %s: %s",
-                                getattr(sensor, "_attr_name", "unknown"),
-                                sensor_err,
-                            )
+                # One /signals call per vehicle; its result feeds every sensor.
+                status = await client.get_vehicle_status(vehicle.id)
+                if status:
+                    updated = async_push_status_to_sensors(data, vehicle.id, status)
+                    _LOGGER.debug(
+                        "Updated vehicle %s from API (%d sensors)", vehicle.vin, updated
+                    )
             except Exception as err:
                 _LOGGER.error("Failed to update vehicle %s: %s", vehicle.vin, err)
 
@@ -279,7 +274,9 @@ async def async_setup_entry(
             return
         client = data["client"]
         try:
-            await client.get_vehicle_status(vehicle_id)
+            status = await client.get_vehicle_status(vehicle_id)
+            if status:
+                async_push_status_to_sensors(data, vehicle_id, status)
             _LOGGER.info("Refreshed status for vehicle %s", vehicle_id)
         except Exception as err:
             _LOGGER.error("Failed to refresh status: %s", err)
