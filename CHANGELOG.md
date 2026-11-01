@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.21.9.4] - 2026-11-01 (fork: amaisano)
+
+### Fixed
+
+- **Blocking call at startup.** Every Smartcar request built its own `httpx.AsyncClient`, which loads the CA bundle
+  inside the event loop, so HA logged "Detected blocking call to load_verify_locations ... by custom integration
+  'nissan_na'" on each start. The client now uses Home Assistant's shared httpx client (`get_async_client`); the
+  190 s command timeout moved to the request.
+
 ## [0.21.9.3] - 2026-10-30 (fork: amaisano)
 
 ### Fixed
