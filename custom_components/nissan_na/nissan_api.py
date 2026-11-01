@@ -63,11 +63,16 @@ class SmartcarApiClient:
         client_secret: str,
         user_id: Optional[str] = None,
         test_mode: bool = False,
+        http_client: Optional[httpx.AsyncClient] = None,
     ):
         self.client_id = client_id
         self.client_secret = client_secret
         self.user_id = user_id
         self.test_mode = test_mode
+        # Home Assistant's shared client (get_async_client): its SSL context is
+        # prebuilt and `async with` leaves it open. Without it, every call
+        # builds a client, which loads the CA bundle inside the event loop.
+        self._http_client = http_client
         # Client-credentials token cache
         self._cc_token: Optional[str] = None
         self._cc_token_expires_at: float = 0.0
@@ -85,7 +90,7 @@ class SmartcarApiClient:
         if self._cc_token and time.monotonic() < self._cc_token_expires_at:
             return self._cc_token
 
-        async with httpx.AsyncClient() as client:
+        async with self._http() as client:
             resp = await client.post(
                 self._IAM_TOKEN_URL,
                 headers={"Content-Type": "application/x-www-form-urlencoded"},
@@ -109,6 +114,10 @@ class SmartcarApiClient:
         _LOGGER.debug("Obtained new client-credentials access token")
         return token
 
+    def _http(self) -> httpx.AsyncClient:
+        """Client for one `async with` block: HA's shared one, else a new one."""
+        return self._http_client or httpx.AsyncClient()
+
     async def _api_headers(self) -> Dict[str, str]:
         """Return auth headers for Smartcar v3 API calls."""
         token = await self._get_access_token()
@@ -124,7 +133,7 @@ class SmartcarApiClient:
     async def _v3_get(self, vehicle_id: str, path: str) -> Dict[str, Any]:
         """GET a v3 vehicle endpoint and return the attributes dict."""
         headers = await self._api_headers()
-        async with httpx.AsyncClient() as client:
+        async with self._http() as client:
             resp = await client.get(
                 f"{self._V3_BASE}/vehicles/{vehicle_id}/{path}",
                 headers=headers,
@@ -141,7 +150,7 @@ class SmartcarApiClient:
     ) -> Dict[str, Any]:
         """POST to a v3 vehicle endpoint and return the full JSON response."""
         headers = await self._api_headers()
-        async with httpx.AsyncClient() as client:
+        async with self._http() as client:
             resp = await client.post(
                 f"{self._V3_BASE}/vehicles/{vehicle_id}/{path}",
                 headers=headers,
@@ -169,8 +178,10 @@ class SmartcarApiClient:
         """
         headers = await self._api_headers()
         url = f"{self._V3_BASE}/vehicles/{vehicle_id}/commands/{command}"
-        async with httpx.AsyncClient(timeout=self._COMMAND_TIMEOUT) as client:
-            resp = await client.post(url, headers=headers, json=body)
+        async with self._http() as client:
+            resp = await client.post(
+                url, headers=headers, json=body, timeout=self._COMMAND_TIMEOUT
+            )
         try:
             data = resp.json()
         except ValueError:
@@ -241,7 +252,7 @@ class SmartcarApiClient:
 
         results: List[Dict[str, Any]] = []
         page = 1
-        async with httpx.AsyncClient() as client:
+        async with self._http() as client:
             while True:
                 params: Dict[str, Any] = {"page[number]": page, "page[size]": 50}
                 if user_id:
@@ -337,7 +348,7 @@ class SmartcarApiClient:
 
             # If VIN is missing, fetch it separately
             if not vin:
-                async with httpx.AsyncClient() as client:
+                async with self._http() as client:
                     resp = await client.get(
                         f"{self._V3_BASE}/vehicles/{vehicle_id}/vin", headers=headers
                     )
@@ -347,7 +358,7 @@ class SmartcarApiClient:
             year = int(year_raw) if year_raw else None
             return Vehicle(id=vehicle_id, vin=vin, make=make, model=model, year=year)
 
-        async with httpx.AsyncClient() as client:
+        async with self._http() as client:
             resp = await client.get(
                 f"{self._V3_BASE}/vehicles/{vehicle_id}", headers=headers
             )
@@ -480,7 +491,7 @@ class SmartcarApiClient:
 
     async def get_climate_status(self, vehicle_id: str) -> Dict[str, Any]:
         headers = await self._api_headers()
-        async with httpx.AsyncClient() as client:
+        async with self._http() as client:
             resp = await client.get(
                 f"{self._V3_BASE}/vehicles/{vehicle_id}/climate",
                 headers=headers,
@@ -494,7 +505,7 @@ class SmartcarApiClient:
 
     async def disconnect(self, vehicle_id: str) -> bool:
         headers = await self._api_headers()
-        async with httpx.AsyncClient() as client:
+        async with self._http() as client:
             resp = await client.delete(
                 f"{self._V3_BASE}/vehicles/{vehicle_id}", headers=headers
             )
@@ -517,7 +528,7 @@ class SmartcarApiClient:
         url = "https://compatibility.api.smartcar.com/v3/compatible-vehicles"
         params = {"filter[make]": make.upper(), "filter[region]": "US"}
         try:
-            async with httpx.AsyncClient() as client:
+            async with self._http() as client:
                 resp = await client.get(url, params=params)
                 if resp.status_code != 200:
                     return []
@@ -564,7 +575,7 @@ class SmartcarApiClient:
         url = f"{self._V3_BASE}/vehicles/{vehicle_id}/signals"
 
         try:
-            async with httpx.AsyncClient() as client:
+            async with self._http() as client:
                 resp = await client.get(url, headers=headers)
                 if resp.status_code == 200:
                     data = resp.json()
@@ -939,7 +950,7 @@ class SmartcarApiClient:
         url = f"{self._V3_BASE}/vehicles/{vehicle_id}/signals"
 
         try:
-            async with httpx.AsyncClient() as client:
+            async with self._http() as client:
                 resp = await client.get(url, headers=headers)
                 if resp.status_code != 200:
                     _LOGGER.warning(

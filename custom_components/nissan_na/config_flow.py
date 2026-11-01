@@ -17,6 +17,8 @@ from typing import Any
 
 import voluptuous as vol
 from homeassistant import config_entries
+from homeassistant.core import HomeAssistant
+from homeassistant.helpers.httpx_client import get_async_client
 
 from .const import (
     CONF_CLIENT_ID,
@@ -55,6 +57,7 @@ def _credentials_schema(defaults: dict[str, Any]) -> vol.Schema:
 
 
 async def _async_validate(
+    hass: HomeAssistant,
     user_input: dict[str, Any],
 ) -> tuple[dict[str, Any] | None, dict[str, str]]:
     """Check credentials, resolve the user ID, and confirm a vehicle exists.
@@ -67,7 +70,10 @@ async def _async_validate(
     user_id = (user_input.get(CONF_USER_ID) or "").strip() or None
 
     client = SmartcarApiClient(
-        client_id=client_id, client_secret=client_secret, user_id=user_id
+        client_id=client_id,
+        client_secret=client_secret,
+        user_id=user_id,
+        http_client=get_async_client(hass),
     )
 
     try:
@@ -129,7 +135,7 @@ class NissanNAConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         """Ask for the API Credentials and validate them."""
         errors: dict[str, str] = {}
         if user_input is not None:
-            data, errors = await _async_validate(user_input)
+            data, errors = await _async_validate(self.hass, user_input)
             if data:
                 await self.async_set_unique_id(data[CONF_USER_ID])
                 self._abort_if_unique_id_configured()
@@ -152,7 +158,7 @@ class NissanNAConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         entry = self._get_reauth_entry()
         errors: dict[str, str] = {}
         if user_input is not None:
-            data, errors = await _async_validate(user_input)
+            data, errors = await _async_validate(self.hass, user_input)
             if data:
                 return self.async_update_reload_and_abort(entry, data_updates=data)
 

@@ -15,6 +15,7 @@ from homeassistant.const import CONF_WEBHOOK_ID
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.event import async_track_time_interval
+from homeassistant.helpers.httpx_client import get_async_client
 
 from .const import (
     CONF_CLIENT_ID,
@@ -130,6 +131,7 @@ async def async_setup_entry(
         client_id=client_id,
         client_secret=client_secret,
         user_id=user_id,
+        http_client=get_async_client(hass),
     )
 
     # Store client in hass data
